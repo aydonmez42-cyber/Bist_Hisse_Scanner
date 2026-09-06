@@ -35,7 +35,8 @@ BLUE, VIOLET, GRID = "#4A8FE7", "#8B6FE0", "#8A9AAB"
 
 st.markdown("""
 <style>
-  .block-container { padding-top: 2.1rem; max-width: 1500px; }
+  .block-container { padding-top: 2.1rem; max-width: 1720px;
+                     padding-left: 2.2rem; padding-right: 2.2rem; }
 
   /* Kenar cubugu etiketleri tam kontrastta */
   section[data-testid="stSidebar"] label,
@@ -315,12 +316,18 @@ if d.empty:
 # ----------------------------------------------------------------------- tablo
 st.markdown('<div class="sect">Sinyal veren hisseler</div>', unsafe_allow_html=True)
 
-tab = d[["Hisse", "Sinyal", "Fiyat", "Degisim %", "AL", "YZ Guven %", "CCI",
-         "ADX", "Supertrend", "Bolge", "Volatilite %", "Hacim"]].copy()
+# Genis ekranda en cok yeri "STRONG BUY + AI Buy + CCI Long" gibi uzun bir
+# sinyal metni kapliyordu. Uc dar onay kolonuna bolundu, basliklar kisaltildi.
+tab = d[["Hisse", "Strong Buy", "AI Buy", "CCI Long", "Fiyat", "Degisim %",
+         "AL", "YZ Guven %", "CCI", "ADX", "Supertrend", "Bolge",
+         "Volatilite %", "Hacim"]].copy()
 tab["Hacim"] = (tab["Hacim"] / 1_000_000).round(2)
-tab = tab.rename(columns={"Degisim %": "Değişim %", "Hacim": "Hacim (M)",
-                          "YZ Guven %": "YZ Güven", "Bolge": "Bölge",
-                          "Volatilite %": "Volatilite"})
+tab["Supertrend"] = tab["Supertrend"].map({"YUKARI": "▲", "ASAGI": "▼"})
+tab["Bolge"] = tab["Bolge"].map({"GOLDEN": "Altın", "DEATH": "Ölüm"})
+tab = tab.rename(columns={
+    "Strong Buy": "★", "AI Buy": "AI", "CCI Long": "CCI▲",
+    "Degisim %": "Değ %", "YZ Guven %": "YZ", "Supertrend": "ST",
+    "Bolge": "Bölge", "Volatilite %": "Vol", "Hacim": "Hacim M"})
 
 # Genis ekran: tam tablo. Telefon: kart listesi. Ikisi de her zaman uretilir,
 # hangisinin gorunecegine CSS medya sorgusu karar verir (Python ekran
@@ -336,18 +343,33 @@ with kap:
         height=min(600, 36 * (len(tab) + 1) + 8),
         column_config={
             "Hisse": st.column_config.TextColumn(width="small"),
-            "Sinyal": st.column_config.TextColumn(width="medium"),
-            "Fiyat": st.column_config.NumberColumn(format="%.2f"),
-            "Değişim %": st.column_config.NumberColumn(format="%+.2f%%"),
+            "★": st.column_config.CheckboxColumn(
+                width="small", help="Strong Buy"),
+            "AI": st.column_config.CheckboxColumn(
+                width="small", help="AI Buy sinyali"),
+            "CCI▲": st.column_config.CheckboxColumn(
+                width="small", help="CCI Long sinyali"),
+            "Fiyat": st.column_config.NumberColumn(format="%.2f",
+                                                   width="small"),
+            "Değ %": st.column_config.NumberColumn(format="%+.2f", width="small",
+                                                   help="Günlük değişim %"),
             "AL": st.column_config.ProgressColumn(
                 "AL / 26", min_value=0, max_value=26, format="%d",
                 width="small"),
-            "YZ Güven": st.column_config.NumberColumn(format="%.0f"),
-            "CCI": st.column_config.NumberColumn(format="%.0f"),
+            "YZ": st.column_config.NumberColumn(format="%.0f", width="small",
+                                                help="YZ AI güven yüzdesi"),
+            "CCI": st.column_config.NumberColumn(format="%.0f", width="small"),
             "ADX": st.column_config.NumberColumn(
-                format="%.0f", help="Trend gücü. 20 altı yatay seyir."),
-            "Volatilite": st.column_config.NumberColumn(format="%.1f%%"),
-            "Hacim (M)": st.column_config.NumberColumn(format="%.1f"),
+                format="%.0f", width="small",
+                help="Trend gücü. 20 altı yatay seyir."),
+            "ST": st.column_config.TextColumn(
+                width="small", help="Supertrend yönü"),
+            "Bölge": st.column_config.TextColumn(
+                width="small", help="EMA50 / EMA200 bölgesi"),
+            "Vol": st.column_config.NumberColumn(
+                format="%.1f", width="small", help="ATR volatilitesi %"),
+            "Hacim M": st.column_config.NumberColumn(
+                format="%.1f", width="small", help="Milyon lot"),
         },
     )
 
