@@ -12,6 +12,8 @@ font = "sans serif"
 
 [server]
 headless = true
+# PWA manifesti ve simgeleri bist_screener/static/ altindan sunulur
+enableStaticServing = true
 enableCORS = false
 enableXsrfProtection = true
 
