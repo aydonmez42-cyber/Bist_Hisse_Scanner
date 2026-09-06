@@ -18,13 +18,14 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 from bist_screener import data as bist_data
+from bist_screener import pwa
 from bist_screener.engine import SBS_NAMES, Settings, compute, last_row_summary
 from bist_screener.scan import _label
 
 TZ = ZoneInfo("Europe/Istanbul")
 
 st.set_page_config(page_title="BIST Long Tarayıcı", page_icon="◆",
-                   layout="wide", initial_sidebar_state="expanded")
+                   layout="wide", initial_sidebar_state="auto")
 
 # Vurgu renkleri hem koyu hem acik temada okunacak sekilde secildi.
 # Zemin ve yazi renkleri Streamlit temasindan gelir (var(--...)), boylece
@@ -74,7 +75,43 @@ st.markdown("""
 
   [data-testid="stDataFrame"] { font-variant-numeric: tabular-nums; }
 
-  @media (max-width: 780px) { .cards { grid-template-columns:repeat(2,1fr); } }
+  /* ---------- Telefon duzeni ---------- */
+  .mobil-liste { display:none; }
+
+  @media (max-width: 820px) {
+      .block-container { padding-top:1.2rem; padding-left:.8rem;
+                         padding-right:.8rem; }
+      .cards { grid-template-columns:repeat(2,1fr); gap:.5rem; }
+      .card { padding:.65rem .75rem; }
+      .card .n { font-size:1.45rem; }
+      .hdr h1 { font-size:1.28rem; }
+      .sub { font-size:.8rem; margin-bottom:1rem; }
+
+      /* Genis tablo telefonda okunmuyor; yerine kart listesi */
+      .st-key-tablo_genis { display:none !important; }
+      .mobil-liste { display:block; }
+  }
+
+  @media (min-width: 821px) { .mobil-liste { display:none !important; } }
+
+  /* Hisse kartlari */
+  .hk { background:var(--secondary-background-color, #1B2836);
+        border:1px solid rgba(128,150,175,.28); border-radius:8px;
+        padding:.7rem .8rem; margin-bottom:.5rem; }
+  .hk-ust { display:flex; justify-content:space-between; align-items:baseline;
+            gap:.5rem; }
+  .hk-ad { font-size:1.02rem; font-weight:650; letter-spacing:.01em; }
+  .hk-fiyat { font-size:1.0rem; font-weight:600;
+              font-variant-numeric:tabular-nums; }
+  .hk-rozet { display:inline-block; font-size:.66rem; font-weight:650;
+              padding:2px 7px; border-radius:3px; margin:.4rem .3rem 0 0;
+              letter-spacing:.02em; }
+  .hk-bar { height:5px; border-radius:3px; margin:.55rem 0 .4rem;
+            background:rgba(128,150,175,.22); overflow:hidden; }
+  .hk-bar span { display:block; height:100%; border-radius:3px; }
+  .hk-alt { display:flex; flex-wrap:wrap; gap:.15rem .9rem; font-size:.73rem;
+            opacity:.72; font-variant-numeric:tabular-nums; }
+  .hk-alt b { font-weight:600; opacity:1; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -96,6 +133,7 @@ def gate() -> None:
 
 
 gate()
+pwa.enable("#111A24")
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -284,23 +322,82 @@ tab = tab.rename(columns={"Degisim %": "Değişim %", "Hacim": "Hacim (M)",
                           "YZ Guven %": "YZ Güven", "Bolge": "Bölge",
                           "Volatilite %": "Volatilite"})
 
-st.dataframe(
-    tab, use_container_width=True, hide_index=True,
-    height=min(600, 36 * (len(tab) + 1) + 8),
-    column_config={
-        "Hisse": st.column_config.TextColumn(width="small"),
-        "Sinyal": st.column_config.TextColumn(width="medium"),
-        "Fiyat": st.column_config.NumberColumn(format="%.2f"),
-        "Değişim %": st.column_config.NumberColumn(format="%+.2f%%"),
-        "AL": st.column_config.ProgressColumn(
-            "AL / 26", min_value=0, max_value=26, format="%d", width="small"),
-        "YZ Güven": st.column_config.NumberColumn(format="%.0f"),
-        "CCI": st.column_config.NumberColumn(format="%.0f"),
-        "ADX": st.column_config.NumberColumn(
-            format="%.0f", help="Trend gücü. 20 altı yatay seyir."),
-        "Volatilite": st.column_config.NumberColumn(format="%.1f%%"),
-        "Hacim (M)": st.column_config.NumberColumn(format="%.1f"),
-    },
+# Genis ekran: tam tablo. Telefon: kart listesi. Ikisi de her zaman uretilir,
+# hangisinin gorunecegine CSS medya sorgusu karar verir (Python ekran
+# genisligini bilemez).
+try:
+    kap = st.container(key="tablo_genis")
+except TypeError:            # eski Streamlit surumlerinde key destegi yok
+    kap = st.container()
+
+with kap:
+    st.dataframe(
+        tab, use_container_width=True, hide_index=True,
+        height=min(600, 36 * (len(tab) + 1) + 8),
+        column_config={
+            "Hisse": st.column_config.TextColumn(width="small"),
+            "Sinyal": st.column_config.TextColumn(width="medium"),
+            "Fiyat": st.column_config.NumberColumn(format="%.2f"),
+            "Değişim %": st.column_config.NumberColumn(format="%+.2f%%"),
+            "AL": st.column_config.ProgressColumn(
+                "AL / 26", min_value=0, max_value=26, format="%d",
+                width="small"),
+            "YZ Güven": st.column_config.NumberColumn(format="%.0f"),
+            "CCI": st.column_config.NumberColumn(format="%.0f"),
+            "ADX": st.column_config.NumberColumn(
+                format="%.0f", help="Trend gücü. 20 altı yatay seyir."),
+            "Volatilite": st.column_config.NumberColumn(format="%.1f%%"),
+            "Hacim (M)": st.column_config.NumberColumn(format="%.1f"),
+        },
+    )
+
+ROZET = {"STRONG BUY": ACCENT, "AI Buy": UP, "CCI Long": BLUE,
+         "Long Giris": VIOLET}
+
+
+def _n(x, basamak: int = 0) -> str:
+    """Kisa gecmisli hisselerde CCI/ADX bos gelebilir; karta 'nan' yazmasin."""
+    return "—" if pd.isna(x) else f"{x:.{basamak}f}"
+
+
+def _kart(r: pd.Series) -> str:
+    deg = 0.0 if pd.isna(r["Degisim %"]) else float(r["Degisim %"])
+    dr = UP if deg >= 0 else DOWN
+    ok = "▲" if deg >= 0 else "▼"
+    rozetler = "".join(
+        f'<span class="hk-rozet" style="background:{ROZET.get(t, GRID)}26;'
+        f'color:{ROZET.get(t, GRID)}">{t}</span>'
+        for t in (x.strip() for x in str(r["Sinyal"]).split("+")) if t
+    )
+    oran = min(max(int(r["AL"]) / 26, 0), 1) * 100
+    barrenk = ACCENT if r["Strong Buy"] else UP
+    hacim = r["Hacim"] / 1_000_000
+    return (
+        f'<div class="hk">'
+        f'<div class="hk-ust"><span class="hk-ad">{r["Hisse"]}</span>'
+        f'<span class="hk-fiyat">{r["Fiyat"]:.2f}'
+        f'<span style="color:{dr};font-size:.8rem;margin-left:.4rem">'
+        f'{ok}{abs(deg):.2f}%</span></span></div>'
+        f'<div>{rozetler}</div>'
+        f'<div class="hk-bar"><span style="width:{oran:.0f}%;'
+        f'background:{barrenk}"></span></div>'
+        f'<div class="hk-alt">'
+        f'<span>AL <b>{int(r["AL"])}/26</b></span>'
+        f'<span>YZ <b>{_n(r["YZ Guven %"])}</b></span>'
+        f'<span>CCI <b>{_n(r["CCI"])}</b></span>'
+        f'<span>ADX <b>{_n(r["ADX"])}</b></span>'
+        f'<span>ST <b>{r["Supertrend"]}</b></span>'
+        f'<span>Bölge <b>{r["Bolge"]}</b></span>'
+        f'<span>Hacim <b>{_n(hacim, 1)}M</b></span>'
+        f'</div></div>'
+    )
+
+
+st.markdown(
+    '<div class="mobil-liste">'
+    + "".join(_kart(r) for _, r in d.iterrows())
+    + "</div>",
+    unsafe_allow_html=True,
 )
 
 st.download_button("CSV indir", d.to_csv(index=False).encode("utf-8-sig"),
@@ -349,7 +446,7 @@ if df is not None:
 
     # Saydam zemin: grafik sayfanin temasini alir, tema degisince uyumlu kalir.
     fig.update_layout(
-        height=540, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        height=460, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         font=dict(color=GRID, size=11), margin=dict(l=4, r=4, t=4, b=4),
         xaxis_rangeslider_visible=False, hovermode="x unified",
         legend=dict(orientation="h", y=1.08, x=0, bgcolor="rgba(0,0,0,0)",
