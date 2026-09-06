@@ -18,7 +18,7 @@ Bu repo GitHub + Railway kurulumu için hazırlandı.
 ├── railway.scanner.json         cron servisinin ayarları
 ├── railway.dashboard.json       web servisinin ayarları
 ├── .streamlit/
-│   └── config.toml              dashboard teması
+│   └── config.toml              dashboard teması + statik dosya sunumu
 └── bist_screener/
     ├── __init__.py
     ├── pine.py                  Pine Script fonksiyonlarının Python karşılıkları
@@ -27,10 +27,12 @@ Bu repo GitHub + Railway kurulumu için hazırlandı.
     ├── scan.py                  tarama döngüsü (terminalden de çalışır)
     ├── notify.py                Telegram gönderimi
     ├── daily.py                 günlük iş — cron bunu çağırır
-    └── app.py                   Streamlit dashboard
+    ├── pwa.py                   telefon uygulaması etiketleri
+    ├── app.py                   Streamlit dashboard
+    └── static/                  manifest.json + uygulama simgeleri
 ```
 
-14 dosyanın hepsi gerekli. Fazladan bir şey yok.
+Hepsi gerekli. Fazladan bir şey yok.
 
 ---
 
@@ -158,6 +160,31 @@ SISE       41.90  ▲ 0.33%  AL 14/26  YZ 58
 Ardından tam liste CSV olarak ek dosya şeklinde gelir. Sinyal çıkmadığı günlerde
 de mesaj gider. Tarama hata alırsa hata metni Telegram'a düşer — bot sessizce
 ölmez.
+
+---
+
+## Telefona uygulama olarak kurmak (Android)
+
+1. Railway adresinizi telefonda **Chrome** ile açın.
+2. Sağ üstteki **⋮** → **Ana ekrana ekle** / **Uygulamayı yükle**.
+3. Ana ekranda mum grafiği simgesiyle görünür.
+
+Arayüz telefonda otomatik olarak sadeleşir: kenar çubuğu kapalı açılır, özet
+kartları ikişerli dizilir ve 12 kolonlu tablo yerine hisse başına bir kart
+listesi gelir. Geniş ekranda tam tablo geri gelir; hangisinin görüneceğine CSS
+karar verir, ayar yapmanız gerekmez.
+
+### Adres çubuğu hâlâ görünüyorsa
+
+Chrome'un uygulamayı tam ekran (WebAPK) kurabilmesi için sitenin kökünde bir
+service worker olması gerekir. Streamlit dosyaları yalnızca `/app/static/`
+altından sunar, o yüzden service worker'ın kapsamı köke ulaşmaz. Sonuç: simge ve
+uygulama adı çalışır, ama Chrome bunu tam ekran uygulama yerine kısayol olarak
+kurabilir ve üstte ince bir adres çubuğu kalır.
+
+Tam ekran istiyorsanız Streamlit'in önüne kökten dosya sunabilen küçük bir
+ters vekil sunucu (Caddy veya nginx) koymak gerekir; bu, dağıtımı Dockerfile'a
+çevirmek demektir. Şu anki kurulumu bozmamak için o adımı ayrı tuttum.
 
 ---
 
