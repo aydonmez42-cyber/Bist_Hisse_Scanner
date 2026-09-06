@@ -322,6 +322,8 @@ tab = d[["Hisse", "Strong Buy", "AI Buy", "CCI Long", "Fiyat", "Degisim %",
          "AL", "YZ Guven %", "CCI", "ADX", "Supertrend", "Bolge",
          "Volatilite %", "Hacim"]].copy()
 tab["Hacim"] = (tab["Hacim"] / 1_000_000).round(2)
+for _k in ("Strong Buy", "AI Buy", "CCI Long"):
+    tab[_k] = tab[_k].map(lambda v: "✅" if v else "")
 tab["Supertrend"] = tab["Supertrend"].map({"YUKARI": "▲", "ASAGI": "▼"})
 tab["Bolge"] = tab["Bolge"].map({"GOLDEN": "Altın", "DEATH": "Ölüm"})
 tab = tab.rename(columns={
@@ -343,13 +345,13 @@ with kap:
         height=min(600, 36 * (len(tab) + 1) + 8),
         column_config={
             "Hisse": st.column_config.TextColumn(width="small"),
-            "Güçlü Al": st.column_config.CheckboxColumn(
+            "Güçlü Al": st.column_config.TextColumn(
                 width="small",
                 help="Strong Buy — YZ Öneri ve Long aynı barda, SBS AL ≥ 17, "
                      "Supertrend yukarı ve Golden Zone"),
-            "YZ Öneri": st.column_config.CheckboxColumn(
+            "YZ Öneri": st.column_config.TextColumn(
                 width="small", help="AI Buy — YZ skoru 20 seviyesini yukarı kesti"),
-            "Long": st.column_config.CheckboxColumn(
+            "Long": st.column_config.TextColumn(
                 width="small",
                 help="CCI Long — CCI, Long Threshold eşiğini yukarı kesti"),
             "Fiyat": st.column_config.NumberColumn(format="%.2f",
