@@ -1,6 +1,0 @@
-# Hafta ici her aksam 18:30'da (sunucu saati Europe/Istanbul olmali)
-# Kurmak icin:  crontab -e   ve asagidaki satiri yapistirin.
-# Yolu kendi kurulumunuza gore duzeltin.
-
-CRON_TZ=Europe/Istanbul
-30 18 * * 1-5 /home/KULLANICI/bist-screener/deploy/run.sh >> /home/KULLANICI/bist-screener/cron.log 2>&1
