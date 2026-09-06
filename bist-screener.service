@@ -1,0 +1,10 @@
+[Unit]
+Description=BIST Long tarama
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=KULLANICI
+WorkingDirectory=/home/KULLANICI/bist-screener
+ExecStart=/home/KULLANICI/bist-screener/deploy/run.sh

@@ -1,0 +1,10 @@
+[Unit]
+Description=Hafta ici 18:30 BIST taramasi
+
+[Timer]
+OnCalendar=Mon..Fri 18:30 Europe/Istanbul
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target
