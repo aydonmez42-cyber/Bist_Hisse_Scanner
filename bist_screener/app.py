@@ -325,8 +325,8 @@ tab["Hacim"] = (tab["Hacim"] / 1_000_000).round(2)
 tab["Supertrend"] = tab["Supertrend"].map({"YUKARI": "▲", "ASAGI": "▼"})
 tab["Bolge"] = tab["Bolge"].map({"GOLDEN": "Altın", "DEATH": "Ölüm"})
 tab = tab.rename(columns={
-    "Strong Buy": "★", "AI Buy": "AI", "CCI Long": "CCI▲",
-    "Degisim %": "Değ %", "YZ Guven %": "YZ", "Supertrend": "ST",
+    "Strong Buy": "Güçlü Al", "AI Buy": "YZ Öneri", "CCI Long": "Long",
+    "Degisim %": "Değ %", "YZ Guven %": "Güven%", "Supertrend": "ST",
     "Bolge": "Bölge", "Volatilite %": "Vol", "Hacim": "Hacim M"})
 
 # Genis ekran: tam tablo. Telefon: kart listesi. Ikisi de her zaman uretilir,
@@ -343,12 +343,15 @@ with kap:
         height=min(600, 36 * (len(tab) + 1) + 8),
         column_config={
             "Hisse": st.column_config.TextColumn(width="small"),
-            "★": st.column_config.CheckboxColumn(
-                width="small", help="Strong Buy"),
-            "AI": st.column_config.CheckboxColumn(
-                width="small", help="AI Buy sinyali"),
-            "CCI▲": st.column_config.CheckboxColumn(
-                width="small", help="CCI Long sinyali"),
+            "Güçlü Al": st.column_config.CheckboxColumn(
+                width="small",
+                help="Strong Buy — YZ Öneri ve Long aynı barda, SBS AL ≥ 17, "
+                     "Supertrend yukarı ve Golden Zone"),
+            "YZ Öneri": st.column_config.CheckboxColumn(
+                width="small", help="AI Buy — YZ skoru 20 seviyesini yukarı kesti"),
+            "Long": st.column_config.CheckboxColumn(
+                width="small",
+                help="CCI Long — CCI, Long Threshold eşiğini yukarı kesti"),
             "Fiyat": st.column_config.NumberColumn(format="%.2f",
                                                    width="small"),
             "Değ %": st.column_config.NumberColumn(format="%+.2f", width="small",
@@ -356,8 +359,8 @@ with kap:
             "AL": st.column_config.ProgressColumn(
                 "AL / 26", min_value=0, max_value=26, format="%d",
                 width="small"),
-            "YZ": st.column_config.NumberColumn(format="%.0f", width="small",
-                                                help="YZ AI güven yüzdesi"),
+            "Güven%": st.column_config.NumberColumn(
+                format="%.0f", width="small", help="YZ AI güven yüzdesi"),
             "CCI": st.column_config.NumberColumn(format="%.0f", width="small"),
             "ADX": st.column_config.NumberColumn(
                 format="%.0f", width="small",
