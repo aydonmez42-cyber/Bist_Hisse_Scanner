@@ -37,23 +37,79 @@ FALLBACK_SYMBOLS = [
 ]
 
 
+LAST_SOURCE = "?"        # son cagrida hangi kaynagin kullanildigi
+
+
+def _from_tradingview(timeout: int = 20) -> list[str]:
+    """
+    TradingView screener'inin kendi uc noktasi. Kimlik dogrulama istemez,
+    tum BIST paylarini tek istekte doner.
+    """
+    import json
+    import urllib.request
+
+    payload = json.dumps({
+        "filter": [{"left": "type", "operation": "equal", "right": "stock"}],
+        "options": {"lang": "tr"},
+        "symbols": {"query": {"types": []}, "tickers": []},
+        "columns": ["name"],
+        "sort": {"sortBy": "name", "sortOrder": "asc"},
+        "range": [0, 1500],
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        "https://scanner.tradingview.com/turkey/scan",
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (compatible; bist-screener/1.0)",
+            "Accept": "application/json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        body = json.loads(r.read().decode("utf-8"))
+
+    out = []
+    for row in body.get("data", []):
+        code = (row.get("d") or [None])[0] or row.get("s", "").split(":")[-1]
+        code = str(code).strip().upper()
+        # Ana pazar paylari 4-5 harflidir; varant/sertifika/BYF'leri eler
+        if code.isalpha() and 4 <= len(code) <= 5:
+            out.append(code)
+    return sorted(set(out))
+
+
+def _from_isyatirim() -> list[str]:
+    from isyatirimhisse import fetch_stock_list  # type: ignore
+
+    data = fetch_stock_list()
+    col = "CODE" if "CODE" in data.columns else data.columns[0]
+    syms = {str(x).strip().upper() for x in data[col] if str(x).strip()}
+    return sorted(s for s in syms if s.isalpha() and 4 <= len(s) <= 5)
+
+
 def get_symbols(full_market: bool = True) -> list[str]:
     """
-    full_market=True ise tum BIST pay listesini canli kaynaktan almayi dener.
-    Basarisiz olursa FALLBACK_SYMBOLS doner.
+    Tum BIST pay listesini sirayla su kaynaklardan dener:
+      1. TradingView screener uc noktasi (ek paket gerektirmez)
+      2. isyatirimhisse paketi (kuruluysa)
+      3. Repodaki yedek liste
+    Kullanilan kaynak LAST_SOURCE degiskeninde tutulur.
     """
-    if full_market:
-        try:
-            from isyatirimhisse import fetch_stock_list  # type: ignore
+    global LAST_SOURCE
 
-            data = fetch_stock_list()
-            col = "CODE" if "CODE" in data.columns else data.columns[0]
-            syms = sorted({str(x).strip().upper() for x in data[col] if str(x).strip()})
-            syms = [s for s in syms if s.isalpha() and 4 <= len(s) <= 5]
-            if len(syms) > 100:
+    if full_market:
+        for isim, fn in [("TradingView", _from_tradingview),
+                         ("Is Yatirim", _from_isyatirim)]:
+            try:
+                syms = fn()
+            except Exception:
+                continue
+            if len(syms) > 150:
+                LAST_SOURCE = f"{isim} ({len(syms)} pay)"
                 return syms
-        except Exception:
-            pass
+
+    LAST_SOURCE = f"yedek liste ({len(FALLBACK_SYMBOLS)} pay)"
     return FALLBACK_SYMBOLS
 
 
