@@ -1,7 +1,0 @@
-pandas>=2.0
-numpy>=1.24
-yfinance>=0.2.40
-streamlit>=1.36
-plotly>=5.20
-pyarrow>=14.0
-isyatirimhisse>=4.0   # opsiyonel: tam BIST sembol listesi icin
