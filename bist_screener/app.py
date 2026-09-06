@@ -26,68 +26,61 @@ TZ = ZoneInfo("Europe/Istanbul")
 st.set_page_config(page_title="BIST Long Tarayıcı", page_icon="◆",
                    layout="wide", initial_sidebar_state="expanded")
 
-# Gece mavisi zemin, tek turkuaz vurgu. Renkler .streamlit/config.toml ile eslesir.
-INK, PANEL, LINE = "#0E1620", "#16202C", "#26374A"
-TEXT, MUTED = "#DDE6F0", "#8496A8"
-UP, DOWN, ACCENT = "#3DD68C", "#F2603C", "#00CED1"
-BLUE, VIOLET = "#7FA8F5", "#B49CF0"
+# Vurgu renkleri hem koyu hem acik temada okunacak sekilde secildi.
+# Zemin ve yazi renkleri Streamlit temasindan gelir (var(--...)), boylece
+# sag ustteki menuden temayi degistirdiginizde arayuz de birlikte degisir.
+UP, DOWN, ACCENT = "#1FB47C", "#E35240", "#12AEB4"
+BLUE, VIOLET, GRID = "#4A8FE7", "#8B6FE0", "#8A9AAB"
 
-st.markdown(f"""
+st.markdown("""
 <style>
-  .block-container {{ padding-top: 2.2rem; max-width: 1500px; }}
+  .block-container { padding-top: 2.1rem; max-width: 1500px; }
 
-  /* Kenar cubugu: etiketler soluk kalmasin */
-  section[data-testid="stSidebar"] {{ border-right: 1px solid {LINE}; }}
+  /* Kenar cubugu etiketleri tam kontrastta */
   section[data-testid="stSidebar"] label,
-  section[data-testid="stSidebar"] .stMarkdown p {{
-      color: {TEXT} !important; font-size: .86rem;
-  }}
-  section[data-testid="stSidebar"] h3 {{
-      font-size: .72rem; letter-spacing: .09em; text-transform: uppercase;
-      color: {MUTED}; margin: 1.4rem 0 .5rem; font-weight: 600;
-  }}
+  section[data-testid="stSidebar"] .stMarkdown p {
+      color: var(--text-color, #EDF3F9) !important;
+      font-size: .87rem; opacity: 1;
+  }
+  section[data-testid="stSidebar"] h3 {
+      font-size: .73rem; letter-spacing: .08em; text-transform: uppercase;
+      opacity: .72; margin: 1.5rem 0 .5rem; font-weight: 600;
+  }
+  .hint { font-size: .74rem; opacity: .62; margin: -.35rem 0 .7rem; }
 
-  /* Baslik */
-  .hdr {{ display:flex; align-items:baseline; gap:.7rem; margin-bottom:.15rem; }}
-  .hdr h1 {{ font-size:1.65rem; font-weight:650; letter-spacing:-.02em;
-             margin:0; color:{TEXT}; }}
-  .hdr .badge {{ font-size:.68rem; letter-spacing:.08em; text-transform:uppercase;
-                 color:{ACCENT}; border:1px solid {ACCENT}55; border-radius:3px;
-                 padding:2px 7px; }}
-  .sub {{ color:{MUTED}; font-size:.85rem; margin-bottom:1.4rem; }}
+  .hdr { display:flex; align-items:baseline; gap:.7rem; margin-bottom:.15rem; }
+  .hdr h1 { font-size:1.6rem; font-weight:650; letter-spacing:-.02em; margin:0; }
+  .hdr .badge { font-size:.68rem; letter-spacing:.08em; text-transform:uppercase;
+                color:#12AEB4; border:1px solid #12AEB477; border-radius:3px;
+                padding:2px 7px; }
+  .sub { opacity:.66; font-size:.85rem; margin-bottom:1.3rem; }
 
-  /* Ozet kartlari */
-  .cards {{ display:grid; grid-template-columns:repeat(4,1fr); gap:.7rem;
-            margin:.2rem 0 .4rem; }}
-  .card {{ background:{PANEL}; border:1px solid {LINE}; border-radius:7px;
-           padding:.85rem 1rem; }}
-  .card .n {{ font-size:1.85rem; font-weight:600; line-height:1.05;
-              font-variant-numeric:tabular-nums; }}
-  .card .l {{ font-size:.73rem; color:{MUTED}; margin-top:.25rem;
-              letter-spacing:.02em; }}
+  .cards { display:grid; grid-template-columns:repeat(4,1fr); gap:.7rem;
+           margin:.2rem 0 .4rem; }
+  .card { background:var(--secondary-background-color, #1B2836);
+          border:1px solid rgba(128,150,175,.28); border-radius:7px;
+          padding:.85rem 1rem; }
+  .card .n { font-size:1.8rem; font-weight:600; line-height:1.05;
+             font-variant-numeric:tabular-nums; }
+  .card .l { font-size:.74rem; opacity:.66; margin-top:.25rem; }
 
-  .meta {{ color:{MUTED}; font-size:.76rem; margin:.6rem 0 1.1rem; }}
-  .meta b {{ color:{TEXT}; font-weight:500; }}
+  .meta { opacity:.66; font-size:.78rem; margin:.6rem 0 1.1rem; }
+  .meta b { opacity:1; font-weight:600; }
 
-  .sect {{ font-size:.72rem; letter-spacing:.09em; text-transform:uppercase;
-           color:{MUTED}; font-weight:600; border-top:1px solid {LINE};
-           padding-top:1.1rem; margin:1.8rem 0 .8rem; }}
+  .sect { font-size:.73rem; letter-spacing:.08em; text-transform:uppercase;
+          opacity:.66; font-weight:600;
+          border-top:1px solid rgba(128,150,175,.28);
+          padding-top:1.1rem; margin:1.8rem 0 .8rem; }
 
-  /* Tablodaki sayilar hizali dursun */
-  [data-testid="stDataFrame"] {{ font-variant-numeric: tabular-nums; }}
+  [data-testid="stDataFrame"] { font-variant-numeric: tabular-nums; }
 
-  @media (max-width: 780px) {{
-      .cards {{ grid-template-columns:repeat(2,1fr); }}
-  }}
+  @media (max-width: 780px) { .cards { grid-template-columns:repeat(2,1fr); } }
 </style>
 """, unsafe_allow_html=True)
 
 
 def gate() -> None:
-    """
-    DASHBOARD_PASSWORD tanimliysa parola sorar. Railway'de dashboard herkese acik
-    bir URL alir; bu degiskeni mutlaka tanimlayin. Bos birakilirsa kapi kapalidir.
-    """
+    """DASHBOARD_PASSWORD tanimliysa parola sorar; bos ise kapi kapalidir."""
     sifre = os.environ.get("DASHBOARD_PASSWORD", "").strip()
     if not sifre or st.session_state.get("acik"):
         return
@@ -116,35 +109,67 @@ def load_symbols(full: bool) -> tuple[list[str], str]:
     return syms, bist_data.LAST_SOURCE
 
 
+@st.cache_data(ttl=1800, show_spinner=False, max_entries=40)
+def hesapla(df: pd.DataFrame, ai_sens: int, cci_len: int,
+            long_th: int, gc: bool) -> pd.DataFrame:
+    """
+    Detay grafigi icin indikator hesabi. Onbelleklenmesi sart: aksi halde her
+    onay kutusu dokunusunda 26 gosterge bastan hesaplanir ve Streamlit betik
+    calisirken tum arayuzu kilitler — panel "pasif" gorunur.
+    """
+    return compute(df, Settings(ai_sens=ai_sens, cci_len=cci_len,
+                                long_threshold=long_th, use_gc_filter=gc))
+
+
 # --------------------------------------------------------------- kenar cubugu
 with st.sidebar:
-    st.markdown("### Tarama")
+    st.markdown("### Tarama ayarları")
+    st.markdown('<div class="hint">Bunları değiştirdikten sonra taramayı '
+                'yeniden çalıştırmanız gerekir.</div>', unsafe_allow_html=True)
+
     evren = st.radio("Hisse evreni", ["Tüm BIST", "Yedek liste"], index=0)
-    lookback = st.slider("Sinyal tazeliği (bar)", 1, 5, 1,
-                         help="1 = sadece son kapanmış gün")
-    min_hacim = st.number_input("Minimum hacim (lot)", 0, 100_000_000, 500_000,
-                                step=100_000)
-
-    st.markdown("### Sinyal filtresi")
-    f_ai = st.checkbox("AI Buy", True)
-    f_cci = st.checkbox("CCI Long", True)
-    sadece_kesisim = st.checkbox("Sadece ikisi aynı anda", False)
-    sadece_golden = st.checkbox("Sadece Golden Zone", False)
-    min_al = st.slider("Minimum SBS AL skoru", 0, 26, 13)
-    min_adx = st.slider("Minimum ADX", 0, 50, 0)
-
-    st.markdown("### İndikatör parametreleri")
-    ai_sens = st.slider("Classifier Sensitivity", 5, 50, 25)
+    lookback = st.slider(
+        "Sinyal tazeliği (bar)", 1, 5, 1,
+        help="Sinyal, eşiğin kesildiği barda bir kez tetiklenir. 1 sadece son "
+             "kapanmış günü gösterir. 3 yaparsanız son üç gün içinde tetiklenmiş "
+             "hisseler de listeye girer — dün kaçırdığınız sinyalleri yakalarsınız, "
+             "karşılığında liste eskir ve uzar.")
+    ai_sens = st.slider("Classifier Sensitivity", 5, 50, 25,
+                        help="YZ AI motorunun RSI/CCI/ATR periyodu. Düşük değer "
+                             "daha çok ve daha erken sinyal, daha çok gürültü.")
     cci_len = st.slider("CCI Length", 10, 60, 30)
-    long_th = st.slider("Long Threshold", 0, 150, 50)
-    gc_filter = st.checkbox("Altın/Ölüm kesişim filtresi", True)
+    long_th = st.slider("Long Threshold", 0, 150, 50,
+                        help="CCI Long sinyalinin tetiklendiği eşik.")
+    gc_filter = st.checkbox(
+        "Altın/Ölüm kesişim filtresi", True,
+        help="Açıkken Long girişleri yalnız EMA50 > EMA200 olan hisselerde "
+             "sayılır. Strong Buy ve Long Giriş etiketlerini etkiler; "
+             "AI Buy ve CCI Long etiketleri bundan bağımsızdır.")
 
-    st.markdown("###")
     calistir = st.button("Taramayı çalıştır", type="primary",
                          use_container_width=True)
 
-cfg = Settings(ai_sens=ai_sens, cci_len=cci_len, long_threshold=long_th,
-               use_gc_filter=gc_filter)
+    st.markdown("### Liste filtresi")
+    st.markdown('<div class="hint">Bunlar anında uygulanır, yeniden tarama '
+                'gerektirmez.</div>', unsafe_allow_html=True)
+
+    sadece_kesisim = st.checkbox("Sadece ikisi aynı anda", False)
+    f_ai = st.checkbox("AI Buy", True, disabled=sadece_kesisim)
+    f_cci = st.checkbox("CCI Long", True, disabled=sadece_kesisim)
+    sadece_golden = st.checkbox("Sadece Golden Zone", False,
+                                help="Listeyi EMA50 > EMA200 olan hisselerle "
+                                     "sınırlar.")
+    min_al = st.slider("Minimum SBS AL skoru", 0, 26, 13,
+                       help="26 göstergeden en az kaçı AL demeli.")
+    min_adx = st.slider(
+        "Minimum ADX", 0, 50, 0,
+        help="ADX trendin gücünü ölçer, yönünü değil. 20'nin altı genelde "
+             "yatay/kararsız piyasa demektir ve bu tür seyirde sinyaller sık "
+             "yanlış çıkar. 20–25 vermek yatay seyredenleri eler; 0 hepsini geçirir.")
+    min_hacim = st.number_input("Minimum hacim (lot)", 0, 100_000_000, 500_000,
+                                step=100_000)
+
+tarama_imzasi = (evren, lookback, ai_sens, cci_len, long_th, gc_filter)
 
 st.markdown(
     '<div class="hdr"><h1>BIST Long Tarayıcı</h1>'
@@ -157,11 +182,14 @@ st.markdown(
 if "sonuc" not in st.session_state:
     st.session_state.sonuc = None
     st.session_state.frames = {}
+    st.session_state.imza = None
 
 if calistir:
     syms, kaynak = load_symbols(evren == "Tüm BIST")
     with st.spinner(f"{len(syms)} hisse için veri indiriliyor…"):
         frames = load_prices(tuple(syms))
+    cfg = Settings(ai_sens=ai_sens, cci_len=cci_len, long_threshold=long_th,
+                   use_gc_filter=gc_filter)
     rows = []
     bar = st.progress(0.0, text="İndikatör hesaplanıyor")
     for i, (sym, df) in enumerate(frames.items()):
@@ -181,6 +209,7 @@ if calistir:
     st.session_state.zaman = dt.datetime.now(TZ)
     st.session_state.evren_boyut = len(frames)
     st.session_state.kaynak = kaynak
+    st.session_state.imza = tarama_imzasi
     st.session_state.veri_tarihi = max(
         (x.index[-1].date() for x in frames.values()), default=None)
 
@@ -190,6 +219,10 @@ if sonuc is None:
     st.info("Soldaki panelden ayarları seçip **Taramayı çalıştır**'a basın. "
             "İlk tarama birkaç dakika sürer, sonrakiler önbellekten gelir.")
     st.stop()
+
+if st.session_state.imza != tarama_imzasi:
+    st.warning("Tarama ayarlarını değiştirdiniz. Aşağıdaki liste hâlâ eski "
+               "ayarlarla üretildi — **Taramayı çalıştır**'a basın.")
 
 # ---------------------------------------------------------------------- filtre
 d = sonuc.copy()
@@ -211,7 +244,7 @@ if not d.empty:
 
 # --------------------------------------------------------------- ozet kartlari
 kartlar = [
-    (st.session_state.evren_boyut, "taranan hisse", TEXT),
+    (st.session_state.evren_boyut, "taranan hisse", "inherit"),
     (len(d), "sinyal veren", ACCENT),
     (int(d["Strong Buy"].sum()) if not d.empty else 0, "Strong Buy", ACCENT),
     (int((d["AI Buy"] & d["CCI Long"]).sum()) if not d.empty else 0,
@@ -237,8 +270,8 @@ st.markdown(
 )
 
 if d.empty:
-    st.warning("Seçilen kriterlerde sinyal yok. Sinyal tazeliğini artırmayı veya "
-               "minimum SBS skorunu düşürmeyi deneyin.")
+    st.warning("Seçilen kriterlerde sinyal yok. Minimum SBS skorunu düşürmeyi "
+               "veya sinyal tazeliğini artırıp yeniden taramayı deneyin.")
     st.stop()
 
 # ----------------------------------------------------------------------- tablo
@@ -263,7 +296,8 @@ st.dataframe(
             "AL / 26", min_value=0, max_value=26, format="%d", width="small"),
         "YZ Güven": st.column_config.NumberColumn(format="%.0f"),
         "CCI": st.column_config.NumberColumn(format="%.0f"),
-        "ADX": st.column_config.NumberColumn(format="%.0f"),
+        "ADX": st.column_config.NumberColumn(
+            format="%.0f", help="Trend gücü. 20 altı yatay seyir."),
         "Volatilite": st.column_config.NumberColumn(format="%.1f%%"),
         "Hacim (M)": st.column_config.NumberColumn(format="%.1f"),
     },
@@ -279,7 +313,7 @@ secim = st.selectbox("Hisse", d["Hisse"].tolist(), label_visibility="collapsed")
 
 df = st.session_state.frames.get(secim)
 if df is not None:
-    res = compute(df, cfg)
+    res = hesapla(df, ai_sens, cci_len, long_th, gc_filter)
     tail, px = res.tail(180), df.tail(180)
 
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
@@ -308,19 +342,21 @@ if df is not None:
                             line=dict(width=0))), row=1, col=1)
 
     fig.add_trace(go.Scatter(x=tail.index, y=tail["cci"], name="CCI",
-                             line=dict(color=MUTED, width=1.2)), row=2, col=1)
+                             line=dict(color=GRID, width=1.2)), row=2, col=1)
     for y, dash in [(long_th, "dot"), (0, "solid"), (-long_th, "dot")]:
-        fig.add_hline(y=y, line=dict(color=LINE, width=1, dash=dash), row=2, col=1)
+        fig.add_hline(y=y, line=dict(color=GRID, width=1, dash=dash),
+                      opacity=.45, row=2, col=1)
 
+    # Saydam zemin: grafik sayfanin temasini alir, tema degisince uyumlu kalir.
     fig.update_layout(
-        height=540, paper_bgcolor=INK, plot_bgcolor=INK,
-        font=dict(color=MUTED, size=11), margin=dict(l=4, r=4, t=4, b=4),
+        height=540, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color=GRID, size=11), margin=dict(l=4, r=4, t=4, b=4),
         xaxis_rangeslider_visible=False, hovermode="x unified",
         legend=dict(orientation="h", y=1.08, x=0, bgcolor="rgba(0,0,0,0)",
                     font=dict(size=10)),
     )
-    fig.update_xaxes(gridcolor=PANEL, zeroline=False)
-    fig.update_yaxes(gridcolor=PANEL, zeroline=False)
+    fig.update_xaxes(gridcolor="rgba(138,154,171,.18)", zeroline=False)
+    fig.update_yaxes(gridcolor="rgba(138,154,171,.18)", zeroline=False)
     st.plotly_chart(fig, use_container_width=True,
                     config={"displayModeBar": False})
 
@@ -331,8 +367,8 @@ if df is not None:
         "Gösterge": SBS_NAMES,
         "Durum": ["AL" if last["sbs_" + n] else "SAT" for n in SBS_NAMES],
     })
-    stil = {"AL": f"background-color:{UP}26;color:{UP};font-weight:600",
-            "SAT": f"background-color:{DOWN}26;color:{DOWN};font-weight:600"}
+    stil = {"AL": f"background-color:{UP}30;color:{UP};font-weight:600",
+            "SAT": f"background-color:{DOWN}30;color:{DOWN};font-weight:600"}
     a, b = st.columns(2, gap="medium")
     for kol, parca in [(a, detay.iloc[:13]), (b, detay.iloc[13:])]:
         kol.dataframe(
