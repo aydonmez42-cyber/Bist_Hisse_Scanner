@@ -17,6 +17,8 @@ Bu repo GitHub + Railway kurulumu için hazırlandı.
 ├── .gitignore                   .env ve önbelleği repo dışında tutar
 ├── railway.scanner.json         cron servisinin ayarları
 ├── railway.dashboard.json       web servisinin ayarları
+├── .streamlit/
+│   └── config.toml              dashboard teması
 └── bist_screener/
     ├── __init__.py
     ├── pine.py                  Pine Script fonksiyonlarının Python karşılıkları
@@ -28,7 +30,22 @@ Bu repo GitHub + Railway kurulumu için hazırlandı.
     └── app.py                   Streamlit dashboard
 ```
 
-13 dosyanın hepsi gerekli. Fazladan bir şey yok.
+14 dosyanın hepsi gerekli. Fazladan bir şey yok.
+
+---
+
+## Sembol listesi nereden geliyor
+
+Bot tam BIST listesini sırayla üç kaynaktan dener:
+
+1. **TradingView screener uç noktası** — kimlik doğrulama istemez, ek paket
+   gerektirmez, tüm payları tek istekte döner. Normalde bu çalışır.
+2. **isyatirimhisse** paketi — kuruluysa.
+3. **Repodaki yedek liste** — 109 hisse.
+
+Dashboard'da özet kartlarının altında hangi kaynağın kullanıldığı yazar. Orada
+"yedek liste" görüyorsanız ilk iki kaynak başarısız olmuş demektir; taranan hisse
+sayısı da 106 civarında kalır. Railway loglarına bakmak gerekir.
 
 ---
 
@@ -141,6 +158,44 @@ SISE       41.90  ▲ 0.33%  AL 14/26  YZ 58
 Ardından tam liste CSV olarak ek dosya şeklinde gelir. Sinyal çıkmadığı günlerde
 de mesaj gider. Tarama hata alırsa hata metni Telegram'a düşer — bot sessizce
 ölmez.
+
+---
+
+## Tema
+
+Varsayılan koyu tema `.streamlit/config.toml` dosyasındadır. Sağ üstteki **⋮ →
+Settings → Theme** menüsünden açık/koyu arasında anlık geçiş yapabilirsiniz;
+arayüz ve grafik ikisine de uyum sağlar.
+
+Açık temayı kalıcı varsayılan yapmak isterseniz `config.toml` içindeki `[theme]`
+bloğunu bununla değiştirin:
+
+```toml
+[theme]
+base = "light"
+primaryColor = "#0E8F95"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F1F4F8"
+textColor = "#16202C"
+font = "sans serif"
+```
+
+---
+
+## Kenar çubuğundaki ayarlar ne işe yarıyor
+
+Panel iki bölüme ayrılmıştır. **Tarama ayarları** değiştiğinde yeniden tarama
+gerekir; değiştirip taramadan bırakırsanız sayfa sizi uyarır. **Liste filtresi**
+altındakiler mevcut sonuca anında uygulanır.
+
+| Ayar | Ne yapar |
+|---|---|
+| **Sinyal tazeliği** | Sinyal, eşiğin kesildiği barda bir kez tetiklenir. 1 sadece bugünü gösterir; 3 yaparsanız son üç günde tetiklenenler de listeye girer. Dün kaçırdığınız sinyalleri yakalar, karşılığında liste eskir ve uzar. |
+| **Classifier Sensitivity** | YZ AI motorunun RSI/CCI/ATR periyodu. Düşük değer daha erken ve daha çok sinyal, daha çok gürültü. |
+| **Long Threshold** | CCI Long sinyalinin tetiklendiği eşik. |
+| **Altın/Ölüm kesişim filtresi** | Açıkken Long girişleri yalnız EMA50 > EMA200 olan hisselerde sayılır. Yalnızca Strong Buy ve Long Giriş etiketlerini etkiler — AI Buy ve CCI Long bundan bağımsızdır. Listeyi bölgeye göre daraltmak istiyorsanız aradığınız şey **Sadece Golden Zone** filtresidir. |
+| **Minimum ADX** | ADX trendin gücünü ölçer, yönünü değil. 20'nin altı genelde yatay/kararsız piyasadır ve orada sinyaller sık yanlış çıkar. 20–25 vermek yatay seyredenleri eler, 0 hepsini geçirir. |
+| **Minimum SBS AL skoru** | 26 göstergeden en az kaçının AL demesi gerektiği. |
 
 ---
 
