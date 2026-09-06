@@ -1,9 +1,13 @@
+# Koyu tema. Açık temayı tercih ederseniz base/backgroundColor/
+# secondaryBackgroundColor/textColor satırlarını README'deki blokla değiştirin.
+# Ayrıca sağ üstteki ⋮ menüsünden Settings → Theme ile anlık geçiş yapabilirsiniz.
+
 [theme]
 base = "dark"
-primaryColor = "#00CED1"
-backgroundColor = "#0E1620"
-secondaryBackgroundColor = "#16202C"
-textColor = "#DDE6F0"
+primaryColor = "#12AEB4"
+backgroundColor = "#111A24"
+secondaryBackgroundColor = "#1B2836"
+textColor = "#EDF3F9"
 font = "sans serif"
 
 [server]
@@ -15,5 +19,5 @@ enableXsrfProtection = true
 gatherUsageStats = false
 
 [client]
-toolbarMode = "minimal"
+toolbarMode = "viewer"
 showErrorDetails = false
