@@ -432,6 +432,65 @@ st.download_button("CSV indir", d.to_csv(index=False).encode("utf-8-sig"),
                    mime="text/csv")
 
 # ----------------------------------------------------------------------- detay
+st.markdown('<div class="sect">Tüm Piyasa — Genel Görünüm</div>',
+           unsafe_allow_html=True)
+
+c1, c2 = st.columns([2, 1])
+ara = c1.text_input("Hisse ara", placeholder="Hisse ara — örn. THYAO",
+                    label_visibility="collapsed")
+sirala = c2.selectbox(
+    "Sırala", ["Alfabetik", "En çok yükselen", "En çok düşen"],
+    label_visibility="collapsed")
+
+genel_satirlar = []
+for sym, gdf in st.session_state.frames.items():
+    if len(gdf) < 2:
+        continue
+    son = float(gdf["close"].iloc[-1])
+    onceki = float(gdf["close"].iloc[-2])
+    deg = (son / onceki - 1) * 100 if onceki else float("nan")
+    genel_satirlar.append({"Hisse": sym, "Fiyat": son, "Değ %": deg})
+
+genel = pd.DataFrame(genel_satirlar)
+if ara.strip():
+    genel = genel[genel["Hisse"].str.contains(ara.strip().upper())]
+if sirala == "Alfabetik":
+    genel = genel.sort_values("Hisse")
+elif sirala == "En çok yükselen":
+    genel = genel.sort_values("Değ %", ascending=False)
+else:
+    genel = genel.sort_values("Değ %", ascending=True)
+genel = genel.reset_index(drop=True)
+
+
+def _renk(v: float) -> str:
+    if pd.isna(v):
+        return ""
+    return f"color:{UP};font-weight:600" if v >= 0 else f"color:{DOWN};font-weight:600"
+
+
+def _ok(v: float) -> str:
+    if pd.isna(v):
+        return "—"
+    return f"{'▲' if v >= 0 else '▼'} {v:+.2f}%"
+
+
+gost = pd.DataFrame({
+    "Hisse": genel["Hisse"],
+    "Fiyat": genel["Fiyat"].round(2),
+    "Değ %": genel["Değ %"],       # renklendirme icin sayisal kalir
+})
+
+st.dataframe(
+    gost.style
+        .map(_renk, subset=["Değ %"])
+        .format({"Fiyat": "{:.2f}", "Değ %": _ok}),
+    use_container_width=True, hide_index=True,
+    height=min(560, 36 * (len(genel) + 1) + 8),
+)
+st.caption(f"{len(genel)} hisse listeleniyor.")
+
+# ----------------------------------------------------------------------- detay
 st.markdown('<div class="sect">Hisse detayı</div>', unsafe_allow_html=True)
 secim = st.selectbox("Hisse", d["Hisse"].tolist(), label_visibility="collapsed")
 
