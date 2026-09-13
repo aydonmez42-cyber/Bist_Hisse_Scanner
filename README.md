@@ -26,9 +26,10 @@ Bu repo GitHub + Railway kurulumu için hazırlandı.
     ├── data.py                  BIST sembol listesi ve veri indirme
     ├── scan.py                  tarama döngüsü (terminalden de çalışır)
     ├── notify.py                Telegram gönderimi
-    ├── daily.py                 günlük iş — cron bunu çağırır
+    ├── daily.py                 günlük iş — cron bunu çağırır (şu an sadece BIST)
     ├── pwa.py                   telefon uygulaması etiketleri
-    ├── app.py                   Streamlit dashboard
+    ├── crypto_data.py           Binance Futures veri katmanı
+    ├── app.py                   Streamlit dashboard (BIST + Kripto)
     └── static/                  manifest.json + uygulama simgeleri
 ```
 
@@ -160,6 +161,33 @@ SISE       41.90  ▲ 0.33%  AL 14/26  YZ 58
 Ardından tam liste CSV olarak ek dosya şeklinde gelir. Sinyal çıkmadığı günlerde
 de mesaj gider. Tarama hata alırsa hata metni Telegram'a düşer — bot sessizce
 ölmez.
+
+---
+
+## BIST + Kripto (Binance Futures)
+
+Dashboard'un en üstünde bir **BIST / Kripto** seçici var. Hangisini seçerseniz
+tarama, sinyal tablosu, genel görünüm ve hisse/coin detayı o piyasada çalışır —
+aynı indikatör motoru, iki farklı veri kaynağı.
+
+**Kripto veri kaynağı** Binance Futures'ın herkese açık uç noktaları
+(`fapi.binance.com`), kimlik doğrulama gerektirmez, ek paket kurulumu istemez.
+"Tüm Binance Futures" seçeneği USDT-M perpetual sözleşmelerin tamamını tarar;
+"Majör Coinler" ağa hiç çıkmadan ~25 büyük coin ile anında çalışır.
+
+**Hacim kolonu kripto tarafında USDT cinsindendir**, coin'in kendi biriminde
+değil — böylece BTC ile DOGE'nin hacmi aynı ölçekte karşılaştırılabilir.
+26 göstergenin hiçbiri mutlak bir hacim eşiği kullanmadığı (hepsi kendi hareketli
+ortalamasıyla kıyaslanır) için bu, sinyal mantığını etkilemez.
+
+**Bilinmesi gereken bir risk:** Binance bazı bölgelerden `fapi.binance.com`'a
+erişimi kısıtlayabiliyor. Railway sunucunuzun bölgesi engellenmişse kripto
+taraması "veri indirilemedi" hatası verir — bu durumda Railway'de farklı bir
+bölge denemeniz gerekebilir.
+
+**Şu an dahil olmayan:** Telegram bildirimi ve günlük otomatik tarama
+(`daily.py`) hâlâ yalnızca BIST için çalışıyor. Kripto tarafını da otomatik
+taramaya eklemek isterseniz ayrıca söyleyin.
 
 ---
 
