@@ -121,21 +121,109 @@ oluşur. Settings'te:
 | Networking | **Generate Domain** |
 | Cron Schedule | **boş bırakın** |
 
-Variables:
-
-| Değişken | Değer |
-|---|---|
-| `DASHBOARD_PASSWORD` | kendi seçeceğiniz bir parola |
-| `TZ` | `Europe/Istanbul` |
-
 Railway size `xxx.up.railway.app` gibi bir adres verir; telefondan da açılır.
-
-**`DASHBOARD_PASSWORD` mutlaka tanımlayın.** Bu adres herkese açıktır ve
-Streamlit'in kendi giriş ekranı yoktur. Değişken tanımlıysa uygulama parola
-sorar, tanımlı değilse kapı devre dışı kalır.
+**Bu adresi bir sonraki adımda Auth0'a gireceğiniz için önce burada alın.**
 
 Bu servis 7/24 açık kalır ve saatlik ücretlendirilir. Maliyeti sevmiyorsanız
 dashboard'u kendi bilgisayarınızda çalıştırın (aşağıda).
+
+---
+
+## Adım 5 — Üyelik girişi (Auth0)
+
+Dashboard artık paylaşılan tek bir parola yerine gerçek hesaplarla çalışıyor:
+e-posta/şifre ile üye olma ve Google ile giriş, aynı ekranda. Bunu Streamlit
+kendi başına yapamıyor — sadece OIDC sağlayıcılarla (Google gibi) konuşabiliyor
+ve e-posta/şifre için yerleşik bir şeyi yok. **Auth0** bu ikisini tek barındırılan
+giriş sayfasında birleştiriyor, ücretsiz katmanı (ayda 25.000 aktif kullanıcı)
+bu ölçek için fazlasıyla yeterli.
+
+### 5.1 — Auth0 hesabı ve uygulaması
+
+1. [auth0.com](https://auth0.com) üzerinden ücretsiz hesap açın, bir tenant
+   oluşturun (bölge olarak Europe seçmeniz gecikmeyi azaltır).
+2. **Applications → Create Application** → isim verin → **Regular Web
+   Application** seçin.
+3. Açılan uygulamanın **Settings** sekmesinde:
+   - **Allowed Callback URLs**: `https://xxx.up.railway.app/oauth2callback`
+     (Adım 4'te aldığınız Railway adresi + `/oauth2callback`) — yerelde de
+     test edecekseniz virgülle `http://localhost:8501/oauth2callback` ekleyin.
+   - **Allowed Logout URLs**: aynı adresin kök hali, `https://xxx.up.railway.app`
+   - Sayfanın altında **Save Changes**.
+4. Aynı sayfanın üstünde **Domain**, **Client ID**, **Client Secret** değerlerini
+   not edin — birazdan Railway'e gireceksiniz.
+
+### 5.2 — E-posta/şifre ve Google'ı açma
+
+1. Sol menüden **Authentication → Database** → varsayılan bağlantı
+   (`Username-Password-Authentication`) zaten e-posta/şifreyi destekler,
+   **Applications** sekmesinden az önce oluşturduğunuz uygulamayı etkinleştirin.
+2. Sol menüden **Authentication → Social → Google** → etkinleştirin ve
+   uygulamanızı buraya da bağlayın. Test aşamasında Auth0'ın kendi "Dev Keys"i
+   yeterli; gerçek kullanıcı sayısı artınca kendi Google Cloud OAuth
+   istemcinizi bağlamanız önerilir (Auth0'ın Google sayfasında adımları var).
+
+Bu ikisi açıkken kullanıcı giriş sayfasında hem e-posta/şifre formunu hem
+**Google ile devam et** butonunu birlikte görür.
+
+### 5.3 — Railway'e ortam değişkenlerini ekleme
+
+Dashboard servisinin Variables sekmesine ekleyin (artık `DASHBOARD_PASSWORD`
+kullanılmıyor, kaldırabilirsiniz):
+
+| Değişken | Değer |
+|---|---|
+| `AUTH0_DOMAIN` | Auth0'ın verdiği domain, örn. `sizin-tenant.eu.auth0.com` |
+| `AUTH0_CLIENT_ID` | Auth0 uygulamasının Client ID'si |
+| `AUTH0_CLIENT_SECRET` | Auth0 uygulamasının Client Secret'ı |
+| `REDIRECT_URI` | `https://xxx.up.railway.app/oauth2callback` (Adım 4'teki adresiniz) |
+| `COOKIE_SECRET` | rastgele, uzun, kimsenin tahmin edemeyeceği bir metin |
+| `ALLOWED_EMAILS` | erişim vereceğiniz e-postalar, virgülle ayrılmış |
+
+`COOKIE_SECRET`'ı terminalde `python3 -c "import secrets; print(secrets.token_hex(32))"`
+ile üretebilirsiniz. Bu değeri bir kez belirleyin ve sabit tutun — her
+değiştirdiğinizde herkesin oturumu düşer, yeniden giriş yapmaları gerekir.
+
+`ALLOWED_EMAILS` erişimin **tek kontrol noktası**: boş bırakırsanız giriş
+yapan hiç kimse dashboard'u göremez (varsayılan kapalı kayıt). İki format
+karışık kullanılabilir:
+
+```
+ali@gmail.com, ayse@sirket.com, @baskasirket.com
+```
+
+`@baskasirket.com` o alan adının tamamına izin verir. Yeni birine erişim
+vermek için bu listeye e-postasını ekleyip Railway'de kaydetmeniz yeterli —
+kod değişikliği veya yeniden deploy gerekmez, Railway değişkeni güncelleyince
+servisi zaten otomatik yeniden başlatır.
+
+Nasıl çalıştığı: `start_dashboard.sh` container her başladığında bu
+değişkenlerden `.streamlit/secrets.toml` dosyasını üretir (Streamlit sırları
+sadece bu dosyadan okur, ortam değişkeninden değil), sonra Streamlit'i
+başlatır. Dosya diskte sadece çalışırken var olur, repoya hiç girmez.
+
+### 5.4 — Doğrulama
+
+Railway'de servis yeniden başladıktan sonra adresi açın: "Giriş yap / Üye ol"
+düğmesi Auth0'ın sayfasına yönlendirmeli. `ALLOWED_EMAILS` listesinde olan bir
+e-postayla giriş yapınca dashboard açılır; olmayan bir e-postayla girerseniz
+"bu hesaba erişim tanımlı değil" mesajını görürsünüz — bu, izin listesinin
+çalıştığının kanıtı.
+
+**Bunun kapsamadığı şey:** bu sadece kimlik doğrulama ve bir izin listesi;
+ödeme veya abonelik durumu kontrolü yapmıyor. İleride gerçek bir ödeme akışı
+(Stripe vb.) eklemek isterseniz ayrı bir proje olur — şimdilik erişimi elle,
+`ALLOWED_EMAILS` listesi üzerinden yönetiyorsunuz.
+
+### Yerelde test etmek
+
+```bash
+cp .streamlit/secrets.toml.example .streamlit/secrets.toml
+# dosyayi kendi Auth0 degerlerinizle doldurun, Callback URL'i
+# http://localhost:8501/oauth2callback olarak Auth0'a da eklemeyi unutmayin
+export ALLOWED_EMAILS="sizin@e-postaniz.com"
+streamlit run bist_screener/app.py
+```
 
 ---
 
