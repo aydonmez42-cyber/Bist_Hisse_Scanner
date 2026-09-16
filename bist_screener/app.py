@@ -8,7 +8,6 @@ Calistirmak icin:
 from __future__ import annotations
 
 import datetime as dt
-import hmac
 import os
 from zoneinfo import ZoneInfo
 
@@ -126,20 +125,68 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+def _auth_yapilandirilmis_mi() -> bool:
+    """secrets.toml icinde [auth] blogu ve client_id doluysa True doner."""
+    try:
+        return bool(st.secrets.get("auth", {}).get("client_id"))
+    except Exception:
+        return False
+
+
+def _izinli_mi(email: str) -> bool:
+    """
+    ALLOWED_EMAILS ortam degiskeni virgulle ayrilmis e-postalar ve/veya
+    "@sirket.com" seklinde alan adlari icerir. Degisken bossa hic kimse
+    giremez (varsayilan: kapali kayit) — bu bilincli bir tercih, cunku izin
+    listesi bu urunun tek erisim kontrolu.
+    """
+    izinli = os.environ.get("ALLOWED_EMAILS", "").strip()
+    if not izinli:
+        return False
+    email = (email or "").strip().lower()
+    kurallar = [k.strip().lower() for k in izinli.split(",") if k.strip()]
+    return any(
+        email == k or (k.startswith("@") and email.endswith(k))
+        for k in kurallar
+    )
+
+
 def gate() -> None:
-    """DASHBOARD_PASSWORD tanimliysa parola sorar; bos ise kapi kapalidir."""
-    sifre = os.environ.get("DASHBOARD_PASSWORD", "").strip()
-    if not sifre or st.session_state.get("acik"):
-        return
-    st.markdown('<div class="hdr"><h1>Long Tarayıcı</h1></div>',
-                unsafe_allow_html=True)
-    girilen = st.text_input("Parola", type="password")
-    if girilen and hmac.compare_digest(girilen, sifre):
-        st.session_state.acik = True
-        st.rerun()
-    elif girilen:
-        st.error("Parola hatalı.")
-    st.stop()
+    """
+    Auth0 uzerinden e-posta/sifre ve Google ile giris + e-posta izin listesi.
+
+    st.login() kullaniciyi Auth0'in kendi barindirdigi giris sayfasina
+    yonlendirir; o sayfada hem e-posta/sifre formu hem "Google ile devam et"
+    butonu birlikte gorunur (Auth0 Universal Login) — Streamlit tarafinda
+    ayrica form yazmaya gerek yok. Giristen sonra ALLOWED_EMAILS listesinde
+    olmayan hesaplar dashboard'u goremez.
+    """
+    if not _auth_yapilandirilmis_mi():
+        st.markdown('<div class="hdr"><h1>Long Tarayıcı</h1></div>',
+                    unsafe_allow_html=True)
+        st.error("Giriş sistemi henüz yapılandırılmadı. README'deki Auth0 "
+                 "kurulum adımlarını tamamlayın ve Railway'e gerekli ortam "
+                 "değişkenlerini ekleyin.")
+        st.stop()
+
+    if not st.user.is_logged_in:
+        st.markdown('<div class="hdr"><h1>Long Tarayıcı</h1></div>',
+                    unsafe_allow_html=True)
+        st.write("Devam etmek için giriş yapın ya da üye olun.")
+        if st.button("Giriş yap / Üye ol", type="primary"):
+            st.login()
+        st.stop()
+
+    if not _izinli_mi(st.user.get("email", "")):
+        st.markdown('<div class="hdr"><h1>Long Tarayıcı</h1></div>',
+                    unsafe_allow_html=True)
+        st.warning(
+            f"**{st.user.get('email', '')}** ile giriş yaptınız, ama bu "
+            "hesaba erişim tanımlı değil. Erişim talep etmek için yönetici "
+            "ile iletişime geçin.")
+        if st.button("Çıkış yap"):
+            st.logout()
+        st.stop()
 
 
 gate()
@@ -209,6 +256,12 @@ def hesapla(df: pd.DataFrame, ai_sens: int, cci_len: int,
 
 # --------------------------------------------------------------- kenar cubugu
 with st.sidebar:
+    uc1, uc2 = st.columns([3, 1])
+    uc1.markdown(f'<div class="hint">👤 {st.user.get("email", "")}</div>',
+                unsafe_allow_html=True)
+    if uc2.button("Çıkış", use_container_width=True):
+        st.logout()
+
     st.markdown("### Tarama ayarları")
     st.markdown('<div class="hint">Bunları değiştirdikten sonra taramayı '
                 'yeniden çalıştırmanız gerekir.</div>', unsafe_allow_html=True)
