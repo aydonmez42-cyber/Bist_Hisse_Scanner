@@ -230,28 +230,36 @@ with st.sidebar:
     gc_filter = st.checkbox("Altın/Ölüm kesişim filtresi", True,
                             help=pcfg["gc_yardim"])
 
-    calistir = st.button("Taramayı çalıştır", type="primary",
-                         use_container_width=True)
-
     st.markdown("### Liste filtresi")
     st.markdown('<div class="hint">Bunlar anında uygulanır, yeniden tarama '
                 'gerektirmez.</div>', unsafe_allow_html=True)
 
-    sadece_kesisim = st.checkbox("Sadece ikisi aynı anda", False)
-    f_ai = st.checkbox("AI Buy", True, disabled=sadece_kesisim)
-    f_cci = st.checkbox("CCI Long", True, disabled=sadece_kesisim)
+    sadece_guclu_al = st.checkbox(
+        "Sadece Güçlü Al", False,
+        help="Yalnızca Strong Buy sinyali veren "
+             f"{pcfg['birim'].lower()}leri listeler — AI Buy ve CCI Long'un "
+             "aynı barda, SBS AL ≥ 17, Supertrend yukarı ve Golden Zone ile "
+             "birlikte tetiklendiği en seçici koşul. İşaretliyken aşağıdaki "
+             "sinyal filtreleri devre dışı kalır.")
+    sadece_kesisim = st.checkbox("Sadece ikisi aynı anda", False,
+                                 disabled=sadece_guclu_al)
+    f_ai = st.checkbox("AI Buy", True, disabled=sadece_kesisim or sadece_guclu_al)
+    f_cci = st.checkbox("CCI Long", True, disabled=sadece_kesisim or sadece_guclu_al)
     sadece_golden = st.checkbox("Sadece Golden Zone", False,
                                 help=pcfg["golden_yardim"])
-    min_al = st.slider("Minimum SBS AL skoru", 0, 26, 13,
+    min_al = st.slider("Minimum SBS AL skoru", 0, 26, 15,
                        help="26 göstergeden en az kaçı AL demeli.")
     min_adx = st.slider(
-        "Minimum ADX", 0, 50, 0,
+        "Minimum ADX", 0, 50, 25,
         help="ADX trendin gücünü ölçer, yönünü değil. 20'nin altı genelde "
              "yatay/kararsız piyasa demektir ve bu tür seyirde sinyaller sık "
              "yanlış çıkar. 20–25 vermek yatay seyredenleri eler; 0 hepsini geçirir.")
     min_hacim = st.number_input(
         f"Minimum hacim ({pcfg['hacim_birimi']})", 0, pcfg["hacim_max"],
         pcfg["hacim_varsayilan"], step=pcfg["hacim_adim"], key=f"min_hacim_{piyasa}")
+
+    calistir = st.button("Taramayı çalıştır", type="primary",
+                         use_container_width=True)
 
 tarama_imzasi = (piyasa, evren, lookback, ai_sens, cci_len, long_th, gc_filter)
 
@@ -325,7 +333,9 @@ if st.session_state.imza != tarama_imzasi:
 # ---------------------------------------------------------------------- filtre
 d = sonuc.copy()
 if not d.empty:
-    if sadece_kesisim:
+    if sadece_guclu_al:
+        d = d[d["Strong Buy"]]
+    elif sadece_kesisim:
         d = d[d["AI Buy"] & d["CCI Long"]]
     else:
         mask = pd.Series(False, index=d.index)
