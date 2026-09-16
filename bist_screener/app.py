@@ -386,6 +386,27 @@ if d.empty:
 st.markdown(f'<div class="sect">Sinyal veren {pcfg_sonuc["birim"].lower()}ler'
            '</div>', unsafe_allow_html=True)
 
+# Tablo uzerinde menu tarzi filtreler. Streamlit'in yerlesik tablo basligi
+# menusu (sirala/gizle/boyutlandir) deger bazli filtreleme sunmuyor, o yuzden
+# Supertrend ve Bolge icin ayri coklu-secim menuleri ekliyoruz. Sidebar'daki
+# "Sadece Golden Zone" tiki yalnizca Golden'a daraltabiliyordu; buradaki menu
+# Death'i tek basina da secebilmeyi saglar.
+fm1, fm2 = st.columns(2)
+st_secim = fm1.multiselect("Supertrend", ["Buy", "Sell"], default=["Buy", "Sell"],
+                           help="Supertrend yönüne göre filtrele.")
+bolge_secim = fm2.multiselect("Bölge", ["Altın", "Ölüm"], default=["Altın", "Ölüm"],
+                              help="Golden/Death bölgesine göre filtrele.")
+
+_st_ham = {"Buy": "YUKARI", "Sell": "ASAGI"}
+_bolge_ham = {"Altın": "GOLDEN", "Ölüm": "DEATH"}
+d = d[d["Supertrend"].isin([_st_ham[s] for s in st_secim])]
+d = d[d["Bolge"].isin([_bolge_ham[b] for b in bolge_secim])]
+
+if d.empty:
+    st.info("Bu filtrelerle eşleşen satır kalmadı. Yukarıdaki Supertrend/Bölge "
+            "menülerinden seçim ekleyin.")
+    st.stop()
+
 # Genis ekranda en cok yeri "STRONG BUY + AI Buy + CCI Long" gibi uzun bir
 # sinyal metni kapliyordu. Uc dar onay kolonuna bolundu, basliklar kisaltildi.
 tab = d[["Hisse", "Strong Buy", "AI Buy", "CCI Long", "Fiyat", "Degisim %",
@@ -394,7 +415,7 @@ tab = d[["Hisse", "Strong Buy", "AI Buy", "CCI Long", "Fiyat", "Degisim %",
 tab["Hacim"] = (tab["Hacim"] / 1_000_000).round(2)
 for _k in ("Strong Buy", "AI Buy", "CCI Long"):
     tab[_k] = tab[_k].map(lambda v: "✅" if v else "")
-tab["Supertrend"] = tab["Supertrend"].map({"YUKARI": "▲", "ASAGI": "▼"})
+tab["Supertrend"] = tab["Supertrend"].map({"YUKARI": "Buy", "ASAGI": "Sell"})
 tab["Bolge"] = tab["Bolge"].map({"GOLDEN": "Altın", "DEATH": "Ölüm"})
 tab = tab.rename(columns={
     "Hisse": "Sembol",
@@ -484,7 +505,7 @@ def _kart(r: pd.Series) -> str:
         f'<span>YZ <b>{_n(r["YZ Guven %"])}</b></span>'
         f'<span>CCI <b>{_n(r["CCI"])}</b></span>'
         f'<span>ADX <b>{_n(r["ADX"])}</b></span>'
-        f'<span>ST <b>{r["Supertrend"]}</b></span>'
+        f'<span>ST <b>{"Buy" if r["Supertrend"] == "YUKARI" else "Sell"}</b></span>'
         f'<span>Bölge <b>{r["Bolge"]}</b></span>'
         f'<span>Hacim <b>{_n(hacim, 1)}M</b></span>'
         f'</div></div>'
