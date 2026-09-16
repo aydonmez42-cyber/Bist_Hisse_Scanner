@@ -1,5 +1,5 @@
 """
-BIST Long Tarayici — dashboard.
+Long Tarayici — dashboard (BIST + Binance Futures).
 
 Calistirmak icin:
     streamlit run bist_screener/app.py
@@ -18,13 +18,14 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 from bist_screener import data as bist_data
+from bist_screener import crypto_data
 from bist_screener import pwa
 from bist_screener.engine import SBS_NAMES, Settings, compute, last_row_summary
 from bist_screener.scan import _label
 
 TZ = ZoneInfo("Europe/Istanbul")
 
-st.set_page_config(page_title="BIST Long Tarayıcı", page_icon="◆",
+st.set_page_config(page_title="Long Tarayıcı", page_icon="◆",
                    layout="wide", initial_sidebar_state="auto")
 
 # Vurgu renkleri hem koyu hem acik temada okunacak sekilde secildi.
@@ -49,6 +50,14 @@ st.markdown("""
       opacity: .72; margin: 1.5rem 0 .5rem; font-weight: 600;
   }
   .hint { font-size: .74rem; opacity: .62; margin: -.35rem 0 .7rem; }
+
+  /* Piyasa secici (BIST / Kripto). st.container(key=...) Streamlit'te
+     "st-key-<key>" sinifini otomatik ekler, buradan hedefliyoruz. */
+  .st-key-piyasa_kutusu [role="radiogroup"] { gap: .4rem; }
+  .st-key-piyasa_kutusu label {
+      border: 1px solid rgba(128,150,175,.32); border-radius: 7px;
+      padding: .3rem .9rem !important; margin: 0 !important;
+  }
 
   .hdr { display:flex; align-items:baseline; gap:.7rem; margin-bottom:.15rem; }
   .hdr h1 { font-size:1.6rem; font-weight:650; letter-spacing:-.02em; margin:0; }
@@ -122,7 +131,7 @@ def gate() -> None:
     sifre = os.environ.get("DASHBOARD_PASSWORD", "").strip()
     if not sifre or st.session_state.get("acik"):
         return
-    st.markdown('<div class="hdr"><h1>BIST Long Tarayıcı</h1></div>',
+    st.markdown('<div class="hdr"><h1>Long Tarayıcı</h1></div>',
                 unsafe_allow_html=True)
     girilen = st.text_input("Parola", type="password")
     if girilen and hmac.compare_digest(girilen, sifre):
@@ -136,16 +145,54 @@ def gate() -> None:
 gate()
 pwa.enable("#111A24")
 
+# ------------------------------------------------------------- piyasa secimi
+# Her iki veri modulu de ayni arayuzu sunar: get_symbols(full_market), download(),
+# LAST_SOURCE. Buradaki sozluk sadece hangi modulun ve hangi metin/varsayilanin
+# kullanilacagina karar verir; hesaplama motoru (engine.compute) ikisi icin de
+# birebir aynidir.
+MARKETS = {
+    "BIST": dict(
+        modul=bist_data, baslik="BIST Long Tarayıcı", birim="Hisse",
+        hacim_birimi="lot", hacim_varsayilan=500_000, hacim_adim=100_000,
+        hacim_max=100_000_000, evren_ac="Tüm BIST", evren_yedek="Yedek liste",
+        dosya_onek="bist", ornek_sembol="THYAO",
+        aciklama="Global-100 Trade Intelligence indikatörünün BIST hisseleri "
+                 "üzerinde otomatik taraması.",
+        gc_yardim="Açıkken Long girişleri yalnız EMA50 > EMA200 olan hisselerde "
+                  "sayılır. Strong Buy ve Long Giriş etiketlerini etkiler; "
+                  "AI Buy ve CCI Long etiketleri bundan bağımsızdır.",
+        golden_yardim="Listeyi EMA50 > EMA200 olan hisselerle sınırlar.",
+    ),
+    "Kripto": dict(
+        modul=crypto_data, baslik="Kripto Long Tarayıcı", birim="Coin",
+        hacim_birimi="USDT", hacim_varsayilan=1_000_000, hacim_adim=500_000,
+        hacim_max=20_000_000_000, evren_ac="Tüm Binance Futures",
+        evren_yedek="Majör Coinler", dosya_onek="kripto", ornek_sembol="BTCUSDT",
+        aciklama="Aynı indikatörün Binance USDT-M Futures paritelerinde günlük "
+                 "barlar üzerinde otomatik taraması.",
+        gc_yardim="Açıkken Long girişleri yalnız EMA50 > EMA200 olan coinlerde "
+                  "sayılır. Strong Buy ve Long Giriş etiketlerini etkiler; "
+                  "AI Buy ve CCI Long etiketleri bundan bağımsızdır.",
+        golden_yardim="Listeyi EMA50 > EMA200 olan coinlerle sınırlar.",
+    ),
+}
+
+with st.container(key="piyasa_kutusu"):
+    piyasa = st.radio("Piyasa", list(MARKETS.keys()), horizontal=True,
+                      label_visibility="collapsed", key="piyasa_secim")
+pcfg = MARKETS[piyasa]
+
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def load_prices(symbols: tuple[str, ...]) -> dict[str, pd.DataFrame]:
-    return bist_data.download(list(symbols))
+def load_prices(piyasa_adi: str, symbols: tuple[str, ...]) -> dict[str, pd.DataFrame]:
+    return MARKETS[piyasa_adi]["modul"].download(list(symbols))
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def load_symbols(full: bool) -> tuple[list[str], str]:
-    syms = bist_data.get_symbols(full_market=full)
-    return syms, bist_data.LAST_SOURCE
+def load_symbols(piyasa_adi: str, full: bool) -> tuple[list[str], str]:
+    modul = MARKETS[piyasa_adi]["modul"]
+    syms = modul.get_symbols(full_market=full)
+    return syms, modul.LAST_SOURCE
 
 
 @st.cache_data(ttl=1800, show_spinner=False, max_entries=40)
@@ -166,55 +213,61 @@ with st.sidebar:
     st.markdown('<div class="hint">Bunları değiştirdikten sonra taramayı '
                 'yeniden çalıştırmanız gerekir.</div>', unsafe_allow_html=True)
 
-    evren = st.radio("Hisse evreni", ["Tüm BIST", "Yedek liste"], index=0)
+    evren = st.radio(f"{pcfg['birim']} evreni", [pcfg["evren_ac"], pcfg["evren_yedek"]],
+                     index=0, key=f"evren_{piyasa}")
     lookback = st.slider(
         "Sinyal tazeliği (bar)", 1, 5, 1,
         help="Sinyal, eşiğin kesildiği barda bir kez tetiklenir. 1 sadece son "
              "kapanmış günü gösterir. 3 yaparsanız son üç gün içinde tetiklenmiş "
-             "hisseler de listeye girer — dün kaçırdığınız sinyalleri yakalarsınız, "
-             "karşılığında liste eskir ve uzar.")
+             f"{pcfg['birim'].lower()}ler de listeye girer — dün kaçırdığınız "
+             "sinyalleri yakalarsınız, karşılığında liste eskir ve uzar.")
     ai_sens = st.slider("Classifier Sensitivity", 5, 50, 25,
                         help="YZ AI motorunun RSI/CCI/ATR periyodu. Düşük değer "
                              "daha çok ve daha erken sinyal, daha çok gürültü.")
     cci_len = st.slider("CCI Length", 10, 60, 30)
     long_th = st.slider("Long Threshold", 0, 150, 50,
                         help="CCI Long sinyalinin tetiklendiği eşik.")
-    gc_filter = st.checkbox(
-        "Altın/Ölüm kesişim filtresi", True,
-        help="Açıkken Long girişleri yalnız EMA50 > EMA200 olan hisselerde "
-             "sayılır. Strong Buy ve Long Giriş etiketlerini etkiler; "
-             "AI Buy ve CCI Long etiketleri bundan bağımsızdır.")
-
-    calistir = st.button("Taramayı çalıştır", type="primary",
-                         use_container_width=True)
+    gc_filter = st.checkbox("Altın/Ölüm kesişim filtresi", True,
+                            help=pcfg["gc_yardim"])
 
     st.markdown("### Liste filtresi")
     st.markdown('<div class="hint">Bunlar anında uygulanır, yeniden tarama '
                 'gerektirmez.</div>', unsafe_allow_html=True)
 
-    sadece_kesisim = st.checkbox("Sadece ikisi aynı anda", False)
-    f_ai = st.checkbox("AI Buy", True, disabled=sadece_kesisim)
-    f_cci = st.checkbox("CCI Long", True, disabled=sadece_kesisim)
+    sadece_guclu_al = st.checkbox(
+        "Sadece Güçlü Al", False,
+        help="Yalnızca Strong Buy sinyali veren "
+             f"{pcfg['birim'].lower()}leri listeler — AI Buy ve CCI Long'un "
+             "aynı barda, SBS AL ≥ 17, Supertrend yukarı ve Golden Zone ile "
+             "birlikte tetiklendiği en seçici koşul. İşaretliyken aşağıdaki "
+             "sinyal filtreleri devre dışı kalır.")
+    sadece_kesisim = st.checkbox("Sadece ikisi aynı anda", False,
+                                 disabled=sadece_guclu_al)
+    f_ai = st.checkbox("AI Buy", True, disabled=sadece_kesisim or sadece_guclu_al)
+    f_cci = st.checkbox("CCI Long", True, disabled=sadece_kesisim or sadece_guclu_al)
     sadece_golden = st.checkbox("Sadece Golden Zone", False,
-                                help="Listeyi EMA50 > EMA200 olan hisselerle "
-                                     "sınırlar.")
-    min_al = st.slider("Minimum SBS AL skoru", 0, 26, 13,
+                                help=pcfg["golden_yardim"])
+    min_al = st.slider("Minimum SBS AL skoru", 0, 26, 15,
                        help="26 göstergeden en az kaçı AL demeli.")
     min_adx = st.slider(
-        "Minimum ADX", 0, 50, 0,
+        "Minimum ADX", 0, 50, 25,
         help="ADX trendin gücünü ölçer, yönünü değil. 20'nin altı genelde "
              "yatay/kararsız piyasa demektir ve bu tür seyirde sinyaller sık "
              "yanlış çıkar. 20–25 vermek yatay seyredenleri eler; 0 hepsini geçirir.")
-    min_hacim = st.number_input("Minimum hacim (lot)", 0, 100_000_000, 500_000,
-                                step=100_000)
+    min_hacim = st.number_input(
+        f"Minimum hacim ({pcfg['hacim_birimi']})", 0, pcfg["hacim_max"],
+        pcfg["hacim_varsayilan"], step=pcfg["hacim_adim"], key=f"min_hacim_{piyasa}")
 
-tarama_imzasi = (evren, lookback, ai_sens, cci_len, long_th, gc_filter)
+    calistir = st.button("Taramayı çalıştır", type="primary",
+                         use_container_width=True)
+
+tarama_imzasi = (piyasa, evren, lookback, ai_sens, cci_len, long_th, gc_filter)
 
 st.markdown(
-    '<div class="hdr"><h1>BIST Long Tarayıcı</h1>'
+    f'<div class="hdr"><h1>{pcfg["baslik"]}</h1>'
     '<span class="badge">Günlük</span></div>'
-    '<div class="sub">Global-100 Trade Intelligence indikatörünün otomatik '
-    'taraması. Ön eleme aracıdır, yatırım tavsiyesi değildir.</div>',
+    f'<div class="sub">{pcfg["aciklama"]} Ön eleme aracıdır, yatırım tavsiyesi '
+    'değildir.</div>',
     unsafe_allow_html=True,
 )
 
@@ -224,9 +277,18 @@ if "sonuc" not in st.session_state:
     st.session_state.imza = None
 
 if calistir:
-    syms, kaynak = load_symbols(evren == "Tüm BIST")
-    with st.spinner(f"{len(syms)} hisse için veri indiriliyor…"):
-        frames = load_prices(tuple(syms))
+    syms, kaynak = load_symbols(piyasa, evren == pcfg["evren_ac"])
+    with st.spinner(f"{len(syms)} {pcfg['birim'].lower()} için veri indiriliyor…"):
+        frames = load_prices(piyasa, tuple(syms))
+
+    if not frames:
+        st.error(
+            f"Hiç veri indirilemedi. {piyasa} veri kaynağına bu sunucudan "
+            "erişilemiyor olabilir (bölge kısıtlaması) ya da ağ sorunu var. "
+            "Birkaç dakika sonra tekrar deneyin."
+        )
+        st.stop()
+
     cfg = Settings(ai_sens=ai_sens, cci_len=cci_len, long_threshold=long_th,
                    use_gc_filter=gc_filter)
     rows = []
@@ -249,10 +311,15 @@ if calistir:
     st.session_state.evren_boyut = len(frames)
     st.session_state.kaynak = kaynak
     st.session_state.imza = tarama_imzasi
+    st.session_state.piyasa_adi = piyasa
     st.session_state.veri_tarihi = max(
         (x.index[-1].date() for x in frames.values()), default=None)
 
 sonuc = st.session_state.sonuc
+# Sonuclar, kenar cubugundaki GUNCEL secimden degil, TARANDIGI piyasadan
+# etiketlenir — aksi halde piyasa degistirilip yeniden taranmadan once
+# etiketler yanlis piyasayi gosterir.
+pcfg_sonuc = MARKETS.get(st.session_state.get("piyasa_adi", piyasa), pcfg)
 
 if sonuc is None:
     st.info("Soldaki panelden ayarları seçip **Taramayı çalıştır**'a basın. "
@@ -266,7 +333,9 @@ if st.session_state.imza != tarama_imzasi:
 # ---------------------------------------------------------------------- filtre
 d = sonuc.copy()
 if not d.empty:
-    if sadece_kesisim:
+    if sadece_guclu_al:
+        d = d[d["Strong Buy"]]
+    elif sadece_kesisim:
         d = d[d["AI Buy"] & d["CCI Long"]]
     else:
         mask = pd.Series(False, index=d.index)
@@ -283,7 +352,7 @@ if not d.empty:
 
 # --------------------------------------------------------------- ozet kartlari
 kartlar = [
-    (st.session_state.evren_boyut, "taranan hisse", "inherit"),
+    (st.session_state.evren_boyut, f"taranan {pcfg_sonuc['birim'].lower()}", "inherit"),
     (len(d), "sinyal veren", ACCENT),
     (int(d["Strong Buy"].sum()) if not d.empty else 0, "Strong Buy", ACCENT),
     (int((d["AI Buy"] & d["CCI Long"]).sum()) if not d.empty else 0,
@@ -314,7 +383,29 @@ if d.empty:
     st.stop()
 
 # ----------------------------------------------------------------------- tablo
-st.markdown('<div class="sect">Sinyal veren hisseler</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="sect">Sinyal veren {pcfg_sonuc["birim"].lower()}ler'
+           '</div>', unsafe_allow_html=True)
+
+# Tablo uzerinde menu tarzi filtreler. Streamlit'in yerlesik tablo basligi
+# menusu (sirala/gizle/boyutlandir) deger bazli filtreleme sunmuyor, o yuzden
+# Supertrend ve Bolge icin ayri coklu-secim menuleri ekliyoruz. Sidebar'daki
+# "Sadece Golden Zone" tiki yalnizca Golden'a daraltabiliyordu; buradaki menu
+# Death'i tek basina da secebilmeyi saglar.
+fm1, fm2 = st.columns(2)
+st_secim = fm1.multiselect("Supertrend", ["Buy", "Sell"], default=["Buy", "Sell"],
+                           help="Supertrend yönüne göre filtrele.")
+bolge_secim = fm2.multiselect("Bölge", ["Altın", "Ölüm"], default=["Altın", "Ölüm"],
+                              help="Golden/Death bölgesine göre filtrele.")
+
+_st_ham = {"Buy": "YUKARI", "Sell": "ASAGI"}
+_bolge_ham = {"Altın": "GOLDEN", "Ölüm": "DEATH"}
+d = d[d["Supertrend"].isin([_st_ham[s] for s in st_secim])]
+d = d[d["Bolge"].isin([_bolge_ham[b] for b in bolge_secim])]
+
+if d.empty:
+    st.info("Bu filtrelerle eşleşen satır kalmadı. Yukarıdaki Supertrend/Bölge "
+            "menülerinden seçim ekleyin.")
+    st.stop()
 
 # Genis ekranda en cok yeri "STRONG BUY + AI Buy + CCI Long" gibi uzun bir
 # sinyal metni kapliyordu. Uc dar onay kolonuna bolundu, basliklar kisaltildi.
@@ -324,9 +415,10 @@ tab = d[["Hisse", "Strong Buy", "AI Buy", "CCI Long", "Fiyat", "Degisim %",
 tab["Hacim"] = (tab["Hacim"] / 1_000_000).round(2)
 for _k in ("Strong Buy", "AI Buy", "CCI Long"):
     tab[_k] = tab[_k].map(lambda v: "✅" if v else "")
-tab["Supertrend"] = tab["Supertrend"].map({"YUKARI": "▲", "ASAGI": "▼"})
+tab["Supertrend"] = tab["Supertrend"].map({"YUKARI": "Buy", "ASAGI": "Sell"})
 tab["Bolge"] = tab["Bolge"].map({"GOLDEN": "Altın", "DEATH": "Ölüm"})
 tab = tab.rename(columns={
+    "Hisse": "Sembol",
     "Strong Buy": "Güçlü Al", "AI Buy": "YZ Öneri", "CCI Long": "Long",
     "Degisim %": "Değ %", "YZ Guven %": "Güven%", "Supertrend": "ST",
     "Bolge": "Bölge", "Volatilite %": "Vol", "Hacim": "Hacim M"})
@@ -344,7 +436,7 @@ with kap:
         tab, use_container_width=True, hide_index=True,
         height=min(600, 36 * (len(tab) + 1) + 8),
         column_config={
-            "Hisse": st.column_config.TextColumn(width="small"),
+            "Sembol": st.column_config.TextColumn(width="small"),
             "Güçlü Al": st.column_config.TextColumn(
                 width="small",
                 help="Strong Buy — YZ Öneri ve Long aynı barda, SBS AL ≥ 17, "
@@ -413,7 +505,7 @@ def _kart(r: pd.Series) -> str:
         f'<span>YZ <b>{_n(r["YZ Guven %"])}</b></span>'
         f'<span>CCI <b>{_n(r["CCI"])}</b></span>'
         f'<span>ADX <b>{_n(r["ADX"])}</b></span>'
-        f'<span>ST <b>{r["Supertrend"]}</b></span>'
+        f'<span>ST <b>{"Buy" if r["Supertrend"] == "YUKARI" else "Sell"}</b></span>'
         f'<span>Bölge <b>{r["Bolge"]}</b></span>'
         f'<span>Hacim <b>{_n(hacim, 1)}M</b></span>'
         f'</div></div>'
@@ -428,15 +520,17 @@ st.markdown(
 )
 
 st.download_button("CSV indir", d.to_csv(index=False).encode("utf-8-sig"),
-                   file_name=f"bist_long_{dt.datetime.now(TZ):%Y%m%d}.csv",
+                   file_name=f"{pcfg_sonuc['dosya_onek']}_long_"
+                            f"{dt.datetime.now(TZ):%Y%m%d}.csv",
                    mime="text/csv")
 
-# ----------------------------------------------------------------------- detay
+# ------------------------------------------------------------- genel gorunum
 st.markdown('<div class="sect">Tüm Piyasa — Genel Görünüm</div>',
            unsafe_allow_html=True)
 
 c1, c2 = st.columns([2, 1])
-ara = c1.text_input("Hisse ara", placeholder="Hisse ara — örn. THYAO",
+ara = c1.text_input(
+    "Sembol ara", placeholder=f"Sembol ara — örn. {pcfg_sonuc['ornek_sembol']}",
                     label_visibility="collapsed")
 sirala = c2.selectbox(
     "Sırala", ["Alfabetik", "En çok yükselen", "En çok düşen"],
@@ -476,7 +570,7 @@ def _ok(v: float) -> str:
 
 
 gost = pd.DataFrame({
-    "Hisse": genel["Hisse"],
+    "Sembol": genel["Hisse"],
     "Fiyat": genel["Fiyat"].round(2),
     "Değ %": genel["Değ %"],       # renklendirme icin sayisal kalir
 })
@@ -488,10 +582,11 @@ st.dataframe(
     use_container_width=True, hide_index=True,
     height=min(560, 36 * (len(genel) + 1) + 8),
 )
-st.caption(f"{len(genel)} hisse listeleniyor.")
+st.caption(f"{len(genel)} {pcfg_sonuc['birim'].lower()} listeleniyor.")
 
 # ----------------------------------------------------------------------- detay
-st.markdown('<div class="sect">Hisse detayı</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="sect">{pcfg_sonuc["birim"]} detayı</div>',
+           unsafe_allow_html=True)
 secim = st.selectbox("Hisse", d["Hisse"].tolist(), label_visibility="collapsed")
 
 df = st.session_state.frames.get(secim)
