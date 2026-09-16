@@ -3,7 +3,7 @@ Global-100 Trade Intelligence indikatorunun sinyal motoru.
 
 Pine kaynagindaki BOLUM 2, 3, 4 ve 4.1 buraya cevrildi:
   - 26 gostergeli SuperBuySell (SBS) skoru
-  - Supertrend (ATR 10 x 7.4)
+  - Supertrend (ATR 10 x 7.8)
   - YZ AI trend motoru ve ai_score
   - Commodity Trends AI (CCI 30) uzun/kisa sinyalleri
   - Golden / Death bolgesi (EMA50 vs EMA200)
@@ -52,7 +52,7 @@ class Settings:
 
 # ------------------------------------------------------- ozyinelemeli bloklar
 
-def _supertrend(close: np.ndarray, atr10: np.ndarray, mult: float = 7.4):
+def _supertrend(close: np.ndarray, atr10: np.ndarray, mult: float = 7.8):
     """Pine BOLUM 2 - ATR tabanli takip eden stop ve yon."""
     n = len(close)
     up = close - mult * atr10
@@ -144,7 +144,7 @@ def compute(df: pd.DataFrame, cfg: Settings | None = None) -> pd.DataFrame:
     # --- BOLUM 2: Supertrend -------------------------------------------------
     atr10 = ta.atr(h, l, c, 10)
     st_up, st_dn, st_trend = _supertrend(
-        c.to_numpy(float), atr10.to_numpy(float), 7.4
+        c.to_numpy(float), atr10.to_numpy(float), 7.8
     )
     sbs_trend = pd.Series(st_trend, index=df.index)
 
