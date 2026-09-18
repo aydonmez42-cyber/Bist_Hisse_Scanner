@@ -178,24 +178,31 @@ kullanılmıyor, kaldırabilirsiniz):
 | `AUTH0_CLIENT_SECRET` | Auth0 uygulamasının Client Secret'ı |
 | `REDIRECT_URI` | `https://xxx.up.railway.app/oauth2callback` (Adım 4'teki adresiniz) |
 | `COOKIE_SECRET` | rastgele, uzun, kimsenin tahmin edemeyeceği bir metin |
-| `ALLOWED_EMAILS` | erişim vereceğiniz e-postalar, virgülle ayrılmış |
+| `ADMIN_EMAILS` | yönetici e-postaları, virgülle ayrılmış (opsiyonel) |
+| `PREMIUM_EMAILS` | geçici premium e-postalar, virgülle ayrılmış (opsiyonel) |
 
 `COOKIE_SECRET`'ı terminalde `python3 -c "import secrets; print(secrets.token_hex(32))"`
 ile üretebilirsiniz. Bu değeri bir kez belirleyin ve sabit tutun — her
 değiştirdiğinizde herkesin oturumu düşer, yeniden giriş yapmaları gerekir.
 
-`ALLOWED_EMAILS` erişimin **tek kontrol noktası**: boş bırakırsanız giriş
-yapan hiç kimse dashboard'u göremez (varsayılan kapalı kayıt). İki format
-karışık kullanılabilir:
+`ALLOWED_EMAILS` artık erişim kontrolü değildir. Auth0 ile başarılı şekilde kayıt olan
+veya giriş yapan **her kullanıcı** dashboard'a girebilir ve varsayılan olarak `FREE`
+üyelik seviyesine atanır.
+
+Şimdilik roller Railway ortam değişkenleriyle geçici olarak yönetilebilir:
 
 ```
-ali@gmail.com, ayse@sirket.com, @baskasirket.com
+ADMIN_EMAILS=admin@ornek.com
+PREMIUM_EMAILS=premium@ornek.com,baska@ornek.com
 ```
 
-`@baskasirket.com` o alan adının tamamına izin verir. Yeni birine erişim
-vermek için bu listeye e-postasını ekleyip Railway'de kaydetmeniz yeterli —
-kod değişikliği veya yeniden deploy gerekmez, Railway değişkeni güncelleyince
-servisi zaten otomatik yeniden başlatır.
+Yeni kullanıcıların tamamı ödeme yapmadığı sürece `FREE` kabul edilir. `PREMIUM` ve
+`ADMIN` seviyeleri kod içinde ayrıştırılmıştır. Ücretli üyelik modeline geçildiğinde
+ödeme sağlayıcısı + kalıcı abonelik veritabanı bağlanarak bu geçici listeler kaldırılabilir.
+
+Railway'de eski `ALLOWED_EMAILS` değişkeni kalmışsa uygulama artık onu okumaz; isterseniz
+temizlik amacıyla silebilirsiniz.
+
 
 Nasıl çalıştığı: `start_dashboard.sh` container her başladığında bu
 değişkenlerden `.streamlit/secrets.toml` dosyasını üretir (Streamlit sırları
@@ -204,16 +211,16 @@ başlatır. Dosya diskte sadece çalışırken var olur, repoya hiç girmez.
 
 ### 5.4 — Doğrulama
 
-Railway'de servis yeniden başladıktan sonra adresi açın: "Giriş yap / Üye ol"
-düğmesi Auth0'ın sayfasına yönlendirmeli. `ALLOWED_EMAILS` listesinde olan bir
-e-postayla giriş yapınca dashboard açılır; olmayan bir e-postayla girerseniz
-"bu hesaba erişim tanımlı değil" mesajını görürsünüz — bu, izin listesinin
-çalıştığının kanıtı.
+Railway'de servis yeniden başladıktan sonra adresi açın: "Giriş yap / Ücretsiz üye ol"
+düğmesi Auth0'ın sayfasına yönlendirmeli. Yeni bir kullanıcı kayıt olup giriş yaptıktan
+sonra dashboard'a erişebilmeli ve sidebar'da `FREE` üyelik seviyesini görmelidir.
 
-**Bunun kapsamadığı şey:** bu sadece kimlik doğrulama ve bir izin listesi;
-ödeme veya abonelik durumu kontrolü yapmıyor. İleride gerçek bir ödeme akışı
-(Stripe vb.) eklemek isterseniz ayrı bir proje olur — şimdilik erişimi elle,
-`ALLOWED_EMAILS` listesi üzerinden yönetiyorsunuz.
+`ADMIN_EMAILS` içinde bulunan hesaplar `ADMIN`, `PREMIUM_EMAILS` içinde bulunan hesaplar
+`PREMIUM`, diğer tüm giriş yapan hesaplar `FREE` olur.
+
+**Bunun kapsamadığı şey:** bu sürüm ödeme veya kalıcı abonelik durumu kontrolü yapmıyor.
+Ücretli model aşamasında ödeme sağlayıcısı + kalıcı veritabanı eklenerek abonelik
+başlangıç/bitiş tarihi, aktif/pasif durumu ve premium özellik kilitleri oluşturulacaktır.
 
 ### Yerelde test etmek
 
@@ -221,7 +228,15 @@ e-postayla giriş yapınca dashboard açılır; olmayan bir e-postayla girerseni
 cp .streamlit/secrets.toml.example .streamlit/secrets.toml
 # dosyayi kendi Auth0 degerlerinizle doldurun, Callback URL'i
 # http://localhost:8501/oauth2callback olarak Auth0'a da eklemeyi unutmayin
-export ALLOWED_EMAILS="sizin@e-postaniz.com"
+streamlit run bist_screener/app.py
+```
+
+
+
+```bash
+cp .streamlit/secrets.toml.example .streamlit/secrets.toml
+# dosyayi kendi Auth0 degerlerinizle doldurun, Callback URL'i
+# http://localhost:8501/oauth2callback olarak Auth0'a da eklemeyi unutmayin
 streamlit run bist_screener/app.py
 ```
 
