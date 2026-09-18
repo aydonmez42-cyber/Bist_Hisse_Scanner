@@ -133,35 +133,34 @@ def _auth_yapilandirilmis_mi() -> bool:
         return False
 
 
-def _uyelik_tipi(email: str) -> str:
-    """Kullanici uyelik seviyesini belirler.
-
-    Auth0 ile basarili sekilde giris yapan herkes varsayilan olarak FREE olur.
-    ADMIN_EMAILS ve PREMIUM_EMAILS simdilik Railway ortam degiskenleriyle
-    yonetilebilir. Odeme sistemi devreye girdiginde bu katman kalici
-    abonelik/veritabani sistemine tasinacaktir.
+def _izinli_mi(email: str) -> bool:
     """
+    ALLOWED_EMAILS ortam degiskeni virgulle ayrilmis e-postalar ve/veya
+    "@sirket.com" seklinde alan adlari icerir. Degisken bossa hic kimse
+    giremez (varsayilan: kapali kayit) — bu bilincli bir tercih, cunku izin
+    listesi bu urunun tek erisim kontrolu.
+    """
+    izinli = os.environ.get("ALLOWED_EMAILS", "").strip()
+    if not izinli:
+        return False
     email = (email or "").strip().lower()
-
-    def _listeden_eslesiyor_mu(name: str) -> bool:
-        raw = os.environ.get(name, "").strip()
-        if not raw:
-            return False
-        kurallar = [k.strip().lower() for k in raw.split(",") if k.strip()]
-        return any(
-            email == k or (k.startswith("@") and email.endswith(k))
-            for k in kurallar
-        )
-
-    if _listeden_eslesiyor_mu("ADMIN_EMAILS"):
-        return "ADMIN"
-    if _listeden_eslesiyor_mu("PREMIUM_EMAILS"):
-        return "PREMIUM"
-    return "FREE"
+    kurallar = [k.strip().lower() for k in izinli.split(",") if k.strip()]
+    return any(
+        email == k or (k.startswith("@") and email.endswith(k))
+        for k in kurallar
+    )
 
 
 def gate() -> None:
-    """Auth0 girisi. Kayit olan her kullanici varsayilan olarak FREE'dir."""
+    """
+    Auth0 uzerinden e-posta/sifre ve Google ile giris + e-posta izin listesi.
+
+    st.login() kullaniciyi Auth0'in kendi barindirdigi giris sayfasina
+    yonlendirir; o sayfada hem e-posta/sifre formu hem "Google ile devam et"
+    butonu birlikte gorunur (Auth0 Universal Login) — Streamlit tarafinda
+    ayrica form yazmaya gerek yok. Giristen sonra ALLOWED_EMAILS listesinde
+    olmayan hesaplar dashboard'u goremez.
+    """
     if not _auth_yapilandirilmis_mi():
         st.markdown('<div class="hdr"><h1>Long Tarayıcı</h1></div>',
                     unsafe_allow_html=True)
@@ -173,15 +172,21 @@ def gate() -> None:
     if not st.user.is_logged_in:
         st.markdown('<div class="hdr"><h1>Long Tarayıcı</h1></div>',
                     unsafe_allow_html=True)
-        st.write("Devam etmek için giriş yapın veya ücretsiz üye olun.")
-        if st.button("Giriş yap / Ücretsiz üye ol", type="primary"):
+        st.write("Devam etmek için giriş yapın ya da üye olun.")
+        if st.button("Giriş yap / Üye ol", type="primary"):
             st.login()
         st.stop()
 
-    # Auth0 kimlik doğrulaması basariliysa kullanici dashboard'a girebilir.
-    # Yeni hesaplar varsayilan olarak FREE seviyesindedir.
-    email = st.user.get("email", "")
-    st.session_state["uyelik_tipi"] = _uyelik_tipi(email)
+    if not _izinli_mi(st.user.get("email", "")):
+        st.markdown('<div class="hdr"><h1>Long Tarayıcı</h1></div>',
+                    unsafe_allow_html=True)
+        st.warning(
+            f"**{st.user.get('email', '')}** ile giriş yaptınız, ama bu "
+            "hesaba erişim tanımlı değil. Erişim talep etmek için yönetici "
+            "ile iletişime geçin.")
+        if st.button("Çıkış yap"):
+            st.logout()
+        st.stop()
 
 
 gate()
@@ -251,9 +256,6 @@ def hesapla(df: pd.DataFrame, ai_sens: int, cci_len: int,
 
 # --------------------------------------------------------------- kenar cubugu
 with st.sidebar:
-    uyelik = st.session_state.get("uyelik_tipi", "FREE")
-    rozet = {"FREE": "🟢 FREE", "PREMIUM": "⭐ PREMIUM", "ADMIN": "🛡️ ADMIN"}.get(uyelik, uyelik)
-    st.markdown(f'<div class="hint">Üyelik: <b>{rozet}</b></div>', unsafe_allow_html=True)
     uc1, uc2 = st.columns([3, 1])
     uc1.markdown(f'<div class="hint">👤 {st.user.get("email", "")}</div>',
                 unsafe_allow_html=True)
