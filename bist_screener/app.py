@@ -210,6 +210,9 @@ MARKETS = {
         hacim_birimi="lot", hacim_varsayilan=500_000, hacim_adim=100_000,
         hacim_max=100_000_000, evren_ac="Tüm BIST", evren_yedek="Yedek liste",
         dosya_onek="bist", ornek_sembol="THYAO",
+        # (kod, etiket) - tek secenek varsa sidebar'da zaman dilimi kutusu
+        # hic gosterilmez, gereksiz ayarla kalabalik edilmez.
+        zaman_dilimleri=[("1d", "Günlük")],
         aciklama="ADX DI+/DI- kesişim sistemiyle BIST hisseleri üzerinde "
                  "otomatik tarama: DI+ (yeşil) DI-'yi (kırmızı) yukarı "
                  "keserse AL, DI- DI+'yi yukarı keserse SAT sinyali üretir.",
@@ -219,8 +222,9 @@ MARKETS = {
         hacim_birimi="USDT", hacim_varsayilan=1_000_000, hacim_adim=500_000,
         hacim_max=20_000_000_000, evren_ac="Tüm Binance Futures",
         evren_yedek="Majör Coinler", dosya_onek="kripto", ornek_sembol="BTCUSDT",
+        zaman_dilimleri=[("4h", "4 Saatlik"), ("1d", "Günlük")],
         aciklama="Aynı DI+/DI- kesişim sisteminin Binance USDT-M Futures "
-                 "paritelerinde günlük barlar üzerinde otomatik taraması.",
+                 "paritelerinde, seçtiğiniz zaman diliminde otomatik taraması.",
     ),
 }
 
@@ -231,8 +235,9 @@ pcfg = MARKETS[piyasa]
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def load_prices(piyasa_adi: str, symbols: tuple[str, ...]) -> dict[str, pd.DataFrame]:
-    return MARKETS[piyasa_adi]["modul"].download(list(symbols))
+def load_prices(piyasa_adi: str, symbols: tuple[str, ...],
+                interval: str) -> dict[str, pd.DataFrame]:
+    return MARKETS[piyasa_adi]["modul"].download(list(symbols), interval=interval)
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -266,13 +271,28 @@ with st.sidebar:
 
     evren = st.radio(f"{pcfg['birim']} evreni", [pcfg["evren_ac"], pcfg["evren_yedek"]],
                      index=0, key=f"evren_{piyasa}")
+
+    zd_secenekler = pcfg["zaman_dilimleri"]
+    if len(zd_secenekler) > 1:
+        zd_etiketler = [e for _, e in zd_secenekler]
+        zd_secim = st.radio("Zaman dilimi", zd_etiketler, horizontal=True,
+                            index=0, key=f"zaman_dilimi_{piyasa}",
+                            help="Tarama hangi mum periyodunda çalışsın. "
+                                 "4 Saatlik daha sık ve daha erken kesişim "
+                                 "yakalar, karşılığında daha çok yanlış "
+                                 "sinyal de üretebilir.")
+        interval = {e: k for k, e in zd_secenekler}[zd_secim]
+    else:
+        interval = zd_secenekler[0][0]
+
+    _bar_adi = "gün" if interval == "1d" else "4 saatlik bar"
     lookback = st.slider(
         "Sinyal tazeliği (bar)", 1, 5, 1,
         help="DI+/DI- kesişimi, kesildiği barda bir kez tetiklenir. 1 sadece "
-             "son kapanmış günü gösterir. 3 yaparsanız son üç gün içinde "
-             f"kesişmiş {pcfg['birim'].lower()}ler de listeye girer — dün "
-             "kaçırdığınız sinyalleri yakalarsınız, karşılığında liste eskir "
-             "ve uzar.")
+             f"son kapanmış {_bar_adi}ü gösterir. 3 yaparsanız son üç "
+             f"{_bar_adi} içinde kesişmiş {pcfg['birim'].lower()}ler de "
+             "listeye girer — kaçırdığınız sinyalleri yakalarsınız, "
+             "karşılığında liste eskir ve uzar.")
 
     st.markdown("### Liste filtresi")
     st.markdown('<div class="hint">Bunlar anında uygulanır, yeniden tarama '
@@ -294,11 +314,12 @@ with st.sidebar:
     calistir = st.button("Taramayı çalıştır", type="primary",
                          use_container_width=True)
 
-tarama_imzasi = (piyasa, evren, lookback)
+tarama_imzasi = (piyasa, evren, lookback, interval)
+zd_etiket_secili = dict(pcfg["zaman_dilimleri"])[interval]
 
 st.markdown(
     f'<div class="hdr"><h1>{pcfg["baslik"]}</h1>'
-    '<span class="badge">Günlük</span></div>'
+    f'<span class="badge">{zd_etiket_secili}</span></div>'
     f'<div class="sub">{pcfg["aciklama"]} Ön eleme aracıdır, yatırım tavsiyesi '
     'değildir.</div>',
     unsafe_allow_html=True,
@@ -312,7 +333,7 @@ if "sonuc" not in st.session_state:
 if calistir:
     syms, kaynak = load_symbols(piyasa, evren == pcfg["evren_ac"])
     with st.spinner(f"{len(syms)} {pcfg['birim'].lower()} için veri indiriliyor…"):
-        frames = load_prices(piyasa, tuple(syms))
+        frames = load_prices(piyasa, tuple(syms), interval)
 
     if not frames:
         st.error(
@@ -344,8 +365,13 @@ if calistir:
     st.session_state.kaynak = kaynak
     st.session_state.imza = tarama_imzasi
     st.session_state.piyasa_adi = piyasa
-    st.session_state.veri_tarihi = max(
-        (x.index[-1].date() for x in frames.values()), default=None)
+    st.session_state.interval = interval
+    st.session_state.interval_etiket = zd_etiket_secili
+    son_barlar = [x.index[-1] for x in frames.values()]
+    st.session_state.veri_zaman = max(son_barlar, default=None)
+    st.session_state.veri_tarihi = (
+        st.session_state.veri_zaman.date() if st.session_state.veri_zaman is not None
+        else None)
 
 sonuc = st.session_state.sonuc
 # Sonuclar, kenar cubugundaki GUNCEL secimden degil, TARANDIGI piyasadan
@@ -385,11 +411,18 @@ st.markdown(
 )
 
 vt = st.session_state.veri_tarihi
+vz = st.session_state.get("veri_zaman")
+gunluk_mi = st.session_state.get("interval", "1d") == "1d"
 bayat = bool(vt) and vt != dt.datetime.now(TZ).date()
+if vz is not None:
+    veri_metni = f'{vz:%d.%m.%Y}' if gunluk_mi else f'{vz:%d.%m.%Y %H:%M}'
+else:
+    veri_metni = ""
 st.markdown(
     f'<div class="meta">Son tarama <b>{st.session_state.zaman:%d.%m.%Y %H:%M}</b>'
     f' · sembol kaynağı <b>{st.session_state.kaynak}</b>'
-    + (f' · veri <b>{vt:%d.%m.%Y}</b>' if vt else "")
+    f' · zaman dilimi <b>{st.session_state.get("interval_etiket", "Günlük")}</b>'
+    + (f' · veri <b>{veri_metni}</b>' if veri_metni else "")
     + (f' <span style="color:{DOWN}">⚠ bugüne ait değil</span>' if bayat else "")
     + "</div>",
     unsafe_allow_html=True,
@@ -404,12 +437,13 @@ if d.empty:
 st.markdown(f'<div class="sect">Sinyal veren {pcfg_sonuc["birim"].lower()}ler'
            '</div>', unsafe_allow_html=True)
 
+_kesisim_kolon = "Kaç gün önce" if gunluk_mi else "Kaç bar önce"
 tab = d[["Hisse", "Sinyal", "Fiyat", "Degisim %", "DI+", "DI-", "ADX",
          "Kesisim Gun", "Hacim"]].copy()
 tab["Hacim"] = (tab["Hacim"] / 1_000_000).round(2)
 tab["Sinyal"] = tab["Sinyal"].map({"AL": "🟢 AL", "SAT": "🔴 SAT"})
 tab = tab.rename(columns={
-    "Hisse": "Sembol", "Degisim %": "Değ %", "Kesisim Gun": "Kaç gün önce",
+    "Hisse": "Sembol", "Degisim %": "Değ %", "Kesisim Gun": _kesisim_kolon,
     "Hacim": "Hacim M"})
 
 # Genis ekran: tam tablo. Telefon: kart listesi. Ikisi de her zaman uretilir,
@@ -432,7 +466,7 @@ with kap:
             "Fiyat": st.column_config.NumberColumn(format="%.2f",
                                                    width="small"),
             "Değ %": st.column_config.NumberColumn(format="%+.2f", width="small",
-                                                   help="Günlük değişim %"),
+                                                   help="Bir önceki bara göre değişim %"),
             "DI+": st.column_config.NumberColumn(
                 format="%.0f", width="small", help="Yükseliş yönü gücü"),
             "DI-": st.column_config.NumberColumn(
@@ -440,9 +474,9 @@ with kap:
             "ADX": st.column_config.NumberColumn(
                 format="%.0f", width="small",
                 help="Trend gücü (yön değil). 20 altı yatay seyir."),
-            "Kaç gün önce": st.column_config.NumberColumn(
+            _kesisim_kolon: st.column_config.NumberColumn(
                 format="%d", width="small",
-                help="Kesişim kaç bar önce tetiklendi. 0 = bugün."),
+                help="Kesişim kaç bar önce tetiklendi. 0 = son bar."),
             "Hacim M": st.column_config.NumberColumn(
                 format="%.1f", width="small", help="Milyon"),
         },
@@ -454,6 +488,9 @@ ROZET = {"AL": UP, "SAT": DOWN}
 def _n(x, basamak: int = 0) -> str:
     """Kisa gecmisli hisselerde DI/ADX bos gelebilir; karta 'nan' yazmasin."""
     return "—" if pd.isna(x) else f"{x:.{basamak}f}"
+
+
+_birim_kisa = "gün" if gunluk_mi else "bar"
 
 
 def _kart(r: pd.Series) -> str:
@@ -474,7 +511,7 @@ def _kart(r: pd.Series) -> str:
         f'<span>DI+ <b>{_n(r["DI+"])}</b></span>'
         f'<span>DI- <b>{_n(r["DI-"])}</b></span>'
         f'<span>ADX <b>{_n(r["ADX"])}</b></span>'
-        f'<span>Kesişim <b>{int(r["Kesisim Gun"])} gün önce</b></span>'
+        f'<span>Kesişim <b>{int(r["Kesisim Gun"])} {_birim_kisa} önce</b></span>'
         f'<span>Hacim <b>{_n(hacim, 1)}M</b></span>'
         f'</div></div>'
     )
@@ -621,7 +658,7 @@ if df is not None:
         f'<div class="card"><div class="n">{son["adx"]:.0f}</div>'
         f'<div class="l">ADX</div></div>'
         f'<div class="card"><div class="n">{int(son["kesisim_gun"])}</div>'
-        f'<div class="l">gün önce kesişti</div></div>'
+        f'<div class="l">{_birim_kisa} önce kesişti</div></div>'
         '</div>',
         unsafe_allow_html=True,
     )

@@ -118,10 +118,15 @@ def _cache_path(symbol: str) -> Path:
 
 
 def download(symbols: list[str], years: int = 4, use_cache: bool = True,
-             progress_cb=None) -> dict[str, pd.DataFrame]:
+             progress_cb=None, interval: str = "1d") -> dict[str, pd.DataFrame]:
     """
     Gunluk OHLCV verisi indirir. Cikti: {sembol: DataFrame}.
     Onbellek ayni gun icinde tekrar indirmeyi engeller.
+
+    `interval` parametresi crypto_data.download ile ayni imzayi korumak icin
+    var (dashboard'daki Zaman dilimi secici ikisini de ayni sekilde cagirir).
+    BIST tarafinda yfinance'ten sadece gunluk bar cekiliyor; su an "1d" disinda
+    bir deger gelirse yok sayilir.
     """
     import yfinance as yf
 
