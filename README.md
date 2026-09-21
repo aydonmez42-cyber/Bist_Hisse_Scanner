@@ -1,8 +1,15 @@
-# BIST Long Tarayıcı
+# BIST Sinyal Tarayıcı
 
-Global-100 Trade Intelligence indikatörünün sinyal mantığı Python'a çevrildi.
-Her akşam tüm Borsa İstanbul hisselerini günlük barlarda tarar, **AI Buy** ve
-**CCI Long** sinyali üretenleri Telegram'a gönderir. Ayrıca web dashboard'u var.
+Basit ve şeffaf bir **ADX DI+/DI- kesişim** sistemi kullanır:
+
+- **DI+ (yeşil)**, **DI-'yi (kırmızı)** yukarı keserse → **AL** sinyali
+- **DI-**, **DI+'yi** yukarı keserse → **SAT** sinyali
+- **ADX** yönü değil, o anki trendin **gücünü** ölçer; "Minimum ADX" filtresiyle
+  yatay/kararsız piyasadaki gürültülü kesişimler elenebilir.
+
+Her akşam tüm Borsa İstanbul hisselerini günlük barlarda tarar, AL veya SAT
+sinyali üretenleri Telegram'a gönderir. Ayrıca web dashboard'u var (BIST +
+Binance Futures kripto).
 
 Bu repo GitHub + Railway kurulumu için hazırlandı.
 
@@ -22,7 +29,7 @@ Bu repo GitHub + Railway kurulumu için hazırlandı.
 └── bist_screener/
     ├── __init__.py
     ├── pine.py                  Pine Script fonksiyonlarının Python karşılıkları
-    ├── engine.py                26 SBS göstergesi + YZ AI + CCI sinyal motoru
+    ├── engine.py                DI+/DI- (ADX/DMI) kesişim sinyal motoru
     ├── data.py                  BIST sembol listesi ve veri indirme
     ├── scan.py                  tarama döngüsü (terminalden de çalışır)
     ├── notify.py                Telegram gönderimi
@@ -192,6 +199,15 @@ karışık kullanılabilir:
 ali@gmail.com, ayse@sirket.com, @baskasirket.com
 ```
 
+**Test/deneme kaçış kapısı — `ALLOWED_EMAILS=*`:** Değeri tam olarak (başka
+hiçbir karakter olmadan) tek bir yıldız `*` yaparsanız, giriş yapan **herkes**
+dashboard'a erişebilir — izin listesi devre dışı kalır. Bu, "boş = kapalı"
+varsayılanını değiştirmez; sadece siz bilinçli olarak `*` yazdığınızda
+devreye girer. Sadece kısa süreli test/deneme için kullanın (örn. Auth0
+akışının uçtan uca çalıştığını doğrularken); gerçek kullanıcılara açtığınız
+an bunu gerçek e-posta listenizle (veya `@domaininiz.com` kalıbıyla)
+değiştirin, aksi halde bağlantıyı bilen herkes veriye erişir.
+
 `@baskasirket.com` o alan adının tamamına izin verir. Yeni birine erişim
 vermek için bu listeye e-postasını ekleyip Railway'de kaydetmeniz yeterli —
 kod değişikliği veya yeniden deploy gerekmez, Railway değişkeni güncelleyince
@@ -230,20 +246,15 @@ streamlit run bist_screener/app.py
 ## Telegram mesajı neye benziyor
 
 ```
-BIST Long Tarama · 05.09.2026 18:30
-Taranan 612 hisse · 14 sinyal · veri 05.09
+BIST DI+/DI- Tarama · 05.09.2026 18:30
+Taranan 612 hisse · 6 sinyal · veri 05.09
 
-🔷 STRONG BUY
-THYAO     312.50  ▲ 2.41%  AL 21/26  YZ 78
+🟢 AL — DI+ yukarı kesti
+THYAO     312.50  ▲ 2.41%  DI+   31  DI-   19  ADX   34
+ASELS      88.75  ▼ 0.62%  DI+   28  DI-   21  ADX   29
 
-🟩 AI Buy + CCI Long
-ASELS      88.75  ▼ 0.62%  AL 19/26  YZ 71
-
-🟢 AI Buy
-KRDMD      24.06  ▲ 1.18%  AL 15/26  YZ 64
-
-🔵 CCI Long
-SISE       41.90  ▲ 0.33%  AL 14/26  YZ 58
+🔴 SAT — DI- yukarı kesti
+KRDMD      24.06  ▲ 1.18%  DI+   17  DI-   30  ADX   26
 ```
 
 Ardından tam liste CSV olarak ek dosya şeklinde gelir. Sinyal çıkmadığı günlerde
@@ -263,10 +274,20 @@ aynı indikatör motoru, iki farklı veri kaynağı.
 "Tüm Binance Futures" seçeneği USDT-M perpetual sözleşmelerin tamamını tarar;
 "Majör Coinler" ağa hiç çıkmadan ~25 büyük coin ile anında çalışır.
 
+**Zaman dilimi (yalnız Kripto).** Kripto seçiliyken kenar çubuğunda **4
+Saatlik** / **Günlük** seçimi çıkar — hangisini seçerseniz DI+/DI- kesişimi o
+mum periyodunda hesaplanır. 4 Saatlik daha sık ve daha erken kesişim yakalar
+ama daha çok yanlış sinyal de üretebilir; Günlük daha az ama daha güvenilir
+sinyal verir. İkisi ayrı ayrı önbelleklenir, aralarında geçiş yaptığınızda
+yeniden tarama gerekir. BIST tarafı şimdilik yalnızca günlük barda çalışıyor
+(yfinance'ten intraday BIST verisi ayrı bir konu; isterseniz ayrıca
+ekleyebiliriz), o yüzden BIST seçiliyken bu seçici görünmez.
+
 **Hacim kolonu kripto tarafında USDT cinsindendir**, coin'in kendi biriminde
-değil — böylece BTC ile DOGE'nin hacmi aynı ölçekte karşılaştırılabilir.
-26 göstergenin hiçbiri mutlak bir hacim eşiği kullanmadığı (hepsi kendi hareketli
-ortalamasıyla kıyaslanır) için bu, sinyal mantığını etkilemez.
+değil — böylece BTC ile DOGE'nin hacmi aynı ölçekte karşılaştırılabilir. DI+/DI-
+kesişim mantığı mutlak bir hacim eşiği kullanmaz (yalnızca fiyat hareketine
+bakar), bu yüzden hacim birimi sinyal mantığını etkilemez; sadece "Minimum
+hacim" filtresinde kıyaslama için kullanılır.
 
 **Bilinmesi gereken bir risk:** Binance bazı bölgelerden `fapi.binance.com`'a
 erişimi kısıtlayabiliyor. Railway sunucunuzun bölgesi engellenmişse kripto
@@ -333,12 +354,14 @@ altındakiler mevcut sonuca anında uygulanır.
 
 | Ayar | Ne yapar |
 |---|---|
-| **Sinyal tazeliği** | Sinyal, eşiğin kesildiği barda bir kez tetiklenir. 1 sadece bugünü gösterir; 3 yaparsanız son üç günde tetiklenenler de listeye girer. Dün kaçırdığınız sinyalleri yakalar, karşılığında liste eskir ve uzar. |
-| **Classifier Sensitivity** | YZ AI motorunun RSI/CCI/ATR periyodu. Düşük değer daha erken ve daha çok sinyal, daha çok gürültü. |
-| **Long Threshold** | CCI Long sinyalinin tetiklendiği eşik. |
-| **Altın/Ölüm kesişim filtresi** | Açıkken Long girişleri yalnız EMA50 > EMA200 olan hisselerde sayılır. Yalnızca Strong Buy ve Long Giriş etiketlerini etkiler — AI Buy ve CCI Long bundan bağımsızdır. Listeyi bölgeye göre daraltmak istiyorsanız aradığınız şey **Sadece Golden Zone** filtresidir. |
-| **Minimum ADX** | ADX trendin gücünü ölçer, yönünü değil. 20'nin altı genelde yatay/kararsız piyasadır ve orada sinyaller sık yanlış çıkar. 20–25 vermek yatay seyredenleri eler, 0 hepsini geçirir. |
-| **Minimum SBS AL skoru** | 26 göstergeden en az kaçının AL demesi gerektiği. |
+| **Zaman dilimi** (yalnız Kripto) | Taramanın hangi mum periyodunda çalışacağı: 4 Saatlik ya da Günlük. BIST'te bu seçici görünmez, her zaman günlüktür. |
+| **Sinyal tazeliği** | DI+/DI- kesişimi, kesildiği barda bir kez tetiklenir. 1 sadece son barı gösterir; 3 yaparsanız son üç barda kesişenler de listeye girer. Kaçırdığınız sinyalleri yakalar, karşılığında liste eskir ve uzar. |
+| **Sinyal yönü** | AL (DI+ yukarı kesti) ve/veya SAT (DI- yukarı kesti) sinyallerini gösterip göstermeyeceğinizi seçer. |
+| **Minimum ADX** | ADX trendin gücünü ölçer, yönünü değil. 20'nin altı genelde yatay/kararsız piyasadır ve orada DI+/DI- kesişimleri sık yanlış çıkar. 20–25 vermek yatay seyredenleri eler, 0 hepsini geçirir. |
+| **Minimum hacim** | Bu hacmin altındaki hisse/coin'leri listeden eler. |
+
+Sistem sabit olarak standart Wilder parametreleriyle çalışır: DI uzunluğu 14,
+ADX uzunluğu 14 (Pine'daki `ta.dmi(14, 14)` ile birebir aynı).
 
 ---
 
@@ -347,13 +370,14 @@ altındakiler mevcut sonuca anında uygulanır.
 `bist_screener/daily.py` dosyasının başındaki sabitler:
 
 ```python
-MIN_HACIM = 500_000   # bu lotun altındaki hisseleri eleme
-MIN_AL    = 13        # 26 göstergeden en az kaçı AL demeli
+MIN_HACIM = 500_000   # bu hacmin altındaki hisseleri eleme
+MIN_ADX   = 20        # bu ADX'in altındaki (zayıf trend) sinyaller elenir
 LOOKBACK  = 1         # 1 = sadece son kapanmış bar
 MAX_SATIR = 40        # mesajda listelenecek azami hisse
 ```
 
-İlk canlı taramadan sonra listeyi kalabalık bulursanız `MIN_AL`'ı 17'ye çekin.
+İlk canlı taramadan sonra listeyi kalabalık bulursanız `MIN_ADX`'i 25-30'a
+çekin; boş bulursanız 15'e indirin.
 Dosyayı GitHub'da düzenleyip commit'lediğinizde Railway otomatik yeniden deploy eder.
 
 ---
@@ -395,19 +419,17 @@ hatada 10 tane hata mesajı demek olurdu.
 
 ---
 
-## Bilinmesi gereken iki fark
+## Bilinmesi gereken fark
 
-1. **VWAP.** Pine'ın `ta.vwap`'ı seans başında sıfırlanır. Günlük barda her bar
-   bir seans olduğu için VWAP = hlc3'e eşit olur. Kod da bunu böyle uyguluyor,
-   TradingView'de günlük grafikte gördüğünüzle aynı sonucu verir.
-2. **Veri kaynağı.** yfinance BIST verisi düzeltilmemiş gelir. Temettü ve
-   bedelsizlerde uzun vadeli EMA'lar TradingView'in düzeltilmiş serisinden
-   sapabilir. İlk kurulumda birkaç hisseyi TradingView'le karşılaştırıp
-   doğrulamanız iyi olur.
+**Veri kaynağı.** yfinance BIST verisi düzeltilmemiş gelir. Temettü ve
+bedelsizlerde fiyat serisi TradingView'in düzeltilmiş serisinden hafifçe
+sapabilir; bu da DI+/DI- değerlerini birkaç puan oynatabilir. İlk kurulumda
+birkaç hisseyi TradingView'in ADX/DMI göstergesiyle karşılaştırıp
+doğrulamanız iyi olur.
 
-Motorun doğruluğu için CCI, RSI, linear regression ve Parabolic SAR manuel
-hesapla karşılaştırılarak test edildi; Wilder yumuşatması, `ta.dev`, `ta.linreg`
-ve `ta.sar` TradingView'in referans uygulamalarına göre yazıldı.
+Motorun doğruluğu için DI+/DI-/ADX hesabı, Wilder'ın orijinal True Range/RMA
+yumuşatma yöntemiyle (Pine'daki `ta.dmi(14, 14)` ile birebir aynı formül)
+manuel referans hesaba karşı test edildi.
 
 ---
 
