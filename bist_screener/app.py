@@ -1,5 +1,6 @@
 """
 Long Tarayici — dashboard (BIST + Binance Futures).
+DI+ / DI- (ADX/DMI) kesisim sistemi.
 
 Calistirmak icin:
     streamlit run bist_screener/app.py
@@ -19,7 +20,7 @@ from plotly.subplots import make_subplots
 from bist_screener import data as bist_data
 from bist_screener import crypto_data
 from bist_screener import pwa
-from bist_screener.engine import SBS_NAMES, Settings, compute, last_row_summary
+from bist_screener.engine import Settings, compute, last_row_summary
 from bist_screener.scan import _label
 
 TZ = ZoneInfo("Europe/Istanbul")
@@ -112,14 +113,11 @@ st.markdown("""
   .hk-ad { font-size:1.02rem; font-weight:650; letter-spacing:.01em; }
   .hk-fiyat { font-size:1.0rem; font-weight:600;
               font-variant-numeric:tabular-nums; }
-  .hk-rozet { display:inline-block; font-size:.66rem; font-weight:650;
-              padding:2px 7px; border-radius:3px; margin:.4rem .3rem 0 0;
+  .hk-rozet { display:inline-block; font-size:.7rem; font-weight:650;
+              padding:2px 8px; border-radius:3px; margin:.4rem .3rem 0 0;
               letter-spacing:.02em; }
-  .hk-bar { height:5px; border-radius:3px; margin:.55rem 0 .4rem;
-            background:rgba(128,150,175,.22); overflow:hidden; }
-  .hk-bar span { display:block; height:100%; border-radius:3px; }
   .hk-alt { display:flex; flex-wrap:wrap; gap:.15rem .9rem; font-size:.73rem;
-            opacity:.72; font-variant-numeric:tabular-nums; }
+            opacity:.72; font-variant-numeric:tabular-nums; margin-top:.5rem; }
   .hk-alt b { font-weight:600; opacity:1; }
 </style>
 """, unsafe_allow_html=True)
@@ -139,10 +137,19 @@ def _izinli_mi(email: str) -> bool:
     "@sirket.com" seklinde alan adlari icerir. Degisken bossa hic kimse
     giremez (varsayilan: kapali kayit) — bu bilincli bir tercih, cunku izin
     listesi bu urunun tek erisim kontrolu.
+
+    Test/deneme amacli bir kacis kapisi: ALLOWED_EMAILS tam olarak "*" ise
+    (baska hicbir sey degil, sadece yildiz), herkesin girisine izin verilir.
+    Bu, varsayilan "bos = kapali" davranisini DEGISTIRMEZ — sadece bilinçli
+    olarak * yazildiginda devreye girer. Uretimde/gercek kullanicilar icin
+    onerilmez; sadece siz test ederken kullanin, sonra gercek e-posta
+    listenizle degistirin.
     """
     izinli = os.environ.get("ALLOWED_EMAILS", "").strip()
     if not izinli:
         return False
+    if izinli == "*":
+        return True
     email = (email or "").strip().lower()
     kurallar = [k.strip().lower() for k in izinli.split(",") if k.strip()]
     return any(
@@ -199,28 +206,21 @@ pwa.enable("#111A24")
 # birebir aynidir.
 MARKETS = {
     "BIST": dict(
-        modul=bist_data, baslik="BIST Long Tarayıcı", birim="Hisse",
+        modul=bist_data, baslik="BIST Sinyal Tarayıcı", birim="Hisse",
         hacim_birimi="lot", hacim_varsayilan=500_000, hacim_adim=100_000,
         hacim_max=100_000_000, evren_ac="Tüm BIST", evren_yedek="Yedek liste",
         dosya_onek="bist", ornek_sembol="THYAO",
-        aciklama="Global-100 Trade Intelligence indikatörünün BIST hisseleri "
-                 "üzerinde otomatik taraması.",
-        gc_yardim="Açıkken Long girişleri yalnız EMA50 > EMA200 olan hisselerde "
-                  "sayılır. Strong Buy ve Long Giriş etiketlerini etkiler; "
-                  "AI Buy ve CCI Long etiketleri bundan bağımsızdır.",
-        golden_yardim="Listeyi EMA50 > EMA200 olan hisselerle sınırlar.",
+        aciklama="ADX DI+/DI- kesişim sistemiyle BIST hisseleri üzerinde "
+                 "otomatik tarama: DI+ (yeşil) DI-'yi (kırmızı) yukarı "
+                 "keserse AL, DI- DI+'yi yukarı keserse SAT sinyali üretir.",
     ),
     "Kripto": dict(
-        modul=crypto_data, baslik="Kripto Long Tarayıcı", birim="Coin",
+        modul=crypto_data, baslik="Kripto Sinyal Tarayıcı", birim="Coin",
         hacim_birimi="USDT", hacim_varsayilan=1_000_000, hacim_adim=500_000,
         hacim_max=20_000_000_000, evren_ac="Tüm Binance Futures",
         evren_yedek="Majör Coinler", dosya_onek="kripto", ornek_sembol="BTCUSDT",
-        aciklama="Aynı indikatörün Binance USDT-M Futures paritelerinde günlük "
-                 "barlar üzerinde otomatik taraması.",
-        gc_yardim="Açıkken Long girişleri yalnız EMA50 > EMA200 olan coinlerde "
-                  "sayılır. Strong Buy ve Long Giriş etiketlerini etkiler; "
-                  "AI Buy ve CCI Long etiketleri bundan bağımsızdır.",
-        golden_yardim="Listeyi EMA50 > EMA200 olan coinlerle sınırlar.",
+        aciklama="Aynı DI+/DI- kesişim sisteminin Binance USDT-M Futures "
+                 "paritelerinde günlük barlar üzerinde otomatik taraması.",
     ),
 }
 
@@ -243,15 +243,13 @@ def load_symbols(piyasa_adi: str, full: bool) -> tuple[list[str], str]:
 
 
 @st.cache_data(ttl=1800, show_spinner=False, max_entries=40)
-def hesapla(df: pd.DataFrame, ai_sens: int, cci_len: int,
-            long_th: int, gc: bool) -> pd.DataFrame:
+def hesapla(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Detay grafigi icin indikator hesabi. Onbelleklenmesi sart: aksi halde her
-    onay kutusu dokunusunda 26 gosterge bastan hesaplanir ve Streamlit betik
-    calisirken tum arayuzu kilitler — panel "pasif" gorunur.
+    Detay grafigi icin DI+/DI-/ADX hesabi. Onbelleklenmesi sart: aksi halde
+    her etkilesimde bastan hesaplanir ve Streamlit betik calisirken tum
+    arayuzu kilitler — panel "pasif" gorunur.
     """
-    return compute(df, Settings(ai_sens=ai_sens, cci_len=cci_len,
-                                long_threshold=long_th, use_gc_filter=gc))
+    return compute(df, Settings())
 
 
 # --------------------------------------------------------------- kenar cubugu
@@ -270,43 +268,25 @@ with st.sidebar:
                      index=0, key=f"evren_{piyasa}")
     lookback = st.slider(
         "Sinyal tazeliği (bar)", 1, 5, 1,
-        help="Sinyal, eşiğin kesildiği barda bir kez tetiklenir. 1 sadece son "
-             "kapanmış günü gösterir. 3 yaparsanız son üç gün içinde tetiklenmiş "
-             f"{pcfg['birim'].lower()}ler de listeye girer — dün kaçırdığınız "
-             "sinyalleri yakalarsınız, karşılığında liste eskir ve uzar.")
-    ai_sens = st.slider("Classifier Sensitivity", 5, 50, 25,
-                        help="YZ AI motorunun RSI/CCI/ATR periyodu. Düşük değer "
-                             "daha çok ve daha erken sinyal, daha çok gürültü.")
-    cci_len = st.slider("CCI Length", 10, 60, 30)
-    long_th = st.slider("Long Threshold", 0, 150, 50,
-                        help="CCI Long sinyalinin tetiklendiği eşik.")
-    gc_filter = st.checkbox("Altın/Ölüm kesişim filtresi", True,
-                            help=pcfg["gc_yardim"])
+        help="DI+/DI- kesişimi, kesildiği barda bir kez tetiklenir. 1 sadece "
+             "son kapanmış günü gösterir. 3 yaparsanız son üç gün içinde "
+             f"kesişmiş {pcfg['birim'].lower()}ler de listeye girer — dün "
+             "kaçırdığınız sinyalleri yakalarsınız, karşılığında liste eskir "
+             "ve uzar.")
 
     st.markdown("### Liste filtresi")
     st.markdown('<div class="hint">Bunlar anında uygulanır, yeniden tarama '
                 'gerektirmez.</div>', unsafe_allow_html=True)
 
-    sadece_guclu_al = st.checkbox(
-        "Sadece Güçlü Al", False,
-        help="Yalnızca Strong Buy sinyali veren "
-             f"{pcfg['birim'].lower()}leri listeler — AI Buy ve CCI Long'un "
-             "aynı barda, SBS AL ≥ 17, Supertrend yukarı ve Golden Zone ile "
-             "birlikte tetiklendiği en seçici koşul. İşaretliyken aşağıdaki "
-             "sinyal filtreleri devre dışı kalır.")
-    sadece_kesisim = st.checkbox("Sadece ikisi aynı anda", False,
-                                 disabled=sadece_guclu_al)
-    f_ai = st.checkbox("AI Buy", True, disabled=sadece_kesisim or sadece_guclu_al)
-    f_cci = st.checkbox("CCI Long", True, disabled=sadece_kesisim or sadece_guclu_al)
-    sadece_golden = st.checkbox("Sadece Golden Zone", False,
-                                help=pcfg["golden_yardim"])
-    min_al = st.slider("Minimum SBS AL skoru", 0, 26, 15,
-                       help="26 göstergeden en az kaçı AL demeli.")
+    yon_secim = st.multiselect(
+        "Sinyal yönü", ["AL", "SAT"], default=["AL", "SAT"],
+        help="AL: DI+ DI-'yi yukarı kesti. SAT: DI- DI+'yi yukarı kesti.")
     min_adx = st.slider(
-        "Minimum ADX", 0, 50, 25,
+        "Minimum ADX", 0, 50, 20,
         help="ADX trendin gücünü ölçer, yönünü değil. 20'nin altı genelde "
-             "yatay/kararsız piyasa demektir ve bu tür seyirde sinyaller sık "
-             "yanlış çıkar. 20–25 vermek yatay seyredenleri eler; 0 hepsini geçirir.")
+             "yatay/kararsız piyasa demektir ve bu tür seyirde DI+/DI- "
+             "kesişimleri sık yanlış çıkar. 20–25 vermek yatay seyredenleri "
+             "eler; 0 hepsini geçirir.")
     min_hacim = st.number_input(
         f"Minimum hacim ({pcfg['hacim_birimi']})", 0, pcfg["hacim_max"],
         pcfg["hacim_varsayilan"], step=pcfg["hacim_adim"], key=f"min_hacim_{piyasa}")
@@ -314,7 +294,7 @@ with st.sidebar:
     calistir = st.button("Taramayı çalıştır", type="primary",
                          use_container_width=True)
 
-tarama_imzasi = (piyasa, evren, lookback, ai_sens, cci_len, long_th, gc_filter)
+tarama_imzasi = (piyasa, evren, lookback)
 
 st.markdown(
     f'<div class="hdr"><h1>{pcfg["baslik"]}</h1>'
@@ -342,21 +322,20 @@ if calistir:
         )
         st.stop()
 
-    cfg = Settings(ai_sens=ai_sens, cci_len=cci_len, long_threshold=long_th,
-                   use_gc_filter=gc_filter)
+    cfg = Settings()
     rows = []
-    bar = st.progress(0.0, text="İndikatör hesaplanıyor")
+    bar = st.progress(0.0, text="DI+/DI- hesaplanıyor")
     for i, (sym, df) in enumerate(frames.items()):
         try:
             res = compute(df, cfg)
         except Exception:
             continue
         r = last_row_summary(sym, res, lookback=lookback)
-        if r["AI Buy"] or r["CCI Long"]:
+        if r["AL"] or r["SAT"]:
             r["Sinyal"] = _label(r)
             rows.append(r)
         if i % 25 == 0:
-            bar.progress(i / max(len(frames), 1), text="İndikatör hesaplanıyor")
+            bar.progress(i / max(len(frames), 1), text="DI+/DI- hesaplanıyor")
     bar.empty()
     st.session_state.frames = frames
     st.session_state.sonuc = pd.DataFrame(rows)
@@ -386,30 +365,16 @@ if st.session_state.imza != tarama_imzasi:
 # ---------------------------------------------------------------------- filtre
 d = sonuc.copy()
 if not d.empty:
-    if sadece_guclu_al:
-        d = d[d["Strong Buy"]]
-    elif sadece_kesisim:
-        d = d[d["AI Buy"] & d["CCI Long"]]
-    else:
-        mask = pd.Series(False, index=d.index)
-        if f_ai:
-            mask |= d["AI Buy"]
-        if f_cci:
-            mask |= d["CCI Long"]
-        d = d[mask]
-    if sadece_golden:
-        d = d[d["Bolge"] == "GOLDEN"]
-    d = d[(d["AL"] >= min_al) & (d["Hacim"] >= min_hacim)
-          & (d["ADX"].fillna(0) >= min_adx)]
-    d = d.sort_values(["Strong Buy", "AL", "YZ Guven %"], ascending=False)
+    d = d[d["Sinyal"].isin(yon_secim)]
+    d = d[(d["ADX"].fillna(0) >= min_adx) & (d["Hacim"] >= min_hacim)]
+    d = d.sort_values(["Sinyal", "ADX"], ascending=[True, False])
 
 # --------------------------------------------------------------- ozet kartlari
 kartlar = [
     (st.session_state.evren_boyut, f"taranan {pcfg_sonuc['birim'].lower()}", "inherit"),
     (len(d), "sinyal veren", ACCENT),
-    (int(d["Strong Buy"].sum()) if not d.empty else 0, "Strong Buy", ACCENT),
-    (int((d["AI Buy"] & d["CCI Long"]).sum()) if not d.empty else 0,
-     "AI Buy + CCI Long", UP),
+    (int((d["Sinyal"] == "AL").sum()) if not d.empty else 0, "AL sinyali", UP),
+    (int((d["Sinyal"] == "SAT").sum()) if not d.empty else 0, "SAT sinyali", DOWN),
 ]
 st.markdown(
     '<div class="cards">'
@@ -431,7 +396,7 @@ st.markdown(
 )
 
 if d.empty:
-    st.warning("Seçilen kriterlerde sinyal yok. Minimum SBS skorunu düşürmeyi "
+    st.warning("Seçilen kriterlerde sinyal yok. Minimum ADX'i düşürmeyi "
                "veya sinyal tazeliğini artırıp yeniden taramayı deneyin.")
     st.stop()
 
@@ -439,42 +404,13 @@ if d.empty:
 st.markdown(f'<div class="sect">Sinyal veren {pcfg_sonuc["birim"].lower()}ler'
            '</div>', unsafe_allow_html=True)
 
-# Tablo uzerinde menu tarzi filtreler. Streamlit'in yerlesik tablo basligi
-# menusu (sirala/gizle/boyutlandir) deger bazli filtreleme sunmuyor, o yuzden
-# Supertrend ve Bolge icin ayri coklu-secim menuleri ekliyoruz. Sidebar'daki
-# "Sadece Golden Zone" tiki yalnizca Golden'a daraltabiliyordu; buradaki menu
-# Death'i tek basina da secebilmeyi saglar.
-fm1, fm2 = st.columns(2)
-st_secim = fm1.multiselect("Supertrend", ["Buy", "Sell"], default=["Buy", "Sell"],
-                           help="Supertrend yönüne göre filtrele.")
-bolge_secim = fm2.multiselect("Bölge", ["Altın", "Ölüm"], default=["Altın", "Ölüm"],
-                              help="Golden/Death bölgesine göre filtrele.")
-
-_st_ham = {"Buy": "YUKARI", "Sell": "ASAGI"}
-_bolge_ham = {"Altın": "GOLDEN", "Ölüm": "DEATH"}
-d = d[d["Supertrend"].isin([_st_ham[s] for s in st_secim])]
-d = d[d["Bolge"].isin([_bolge_ham[b] for b in bolge_secim])]
-
-if d.empty:
-    st.info("Bu filtrelerle eşleşen satır kalmadı. Yukarıdaki Supertrend/Bölge "
-            "menülerinden seçim ekleyin.")
-    st.stop()
-
-# Genis ekranda en cok yeri "STRONG BUY + AI Buy + CCI Long" gibi uzun bir
-# sinyal metni kapliyordu. Uc dar onay kolonuna bolundu, basliklar kisaltildi.
-tab = d[["Hisse", "Strong Buy", "AI Buy", "CCI Long", "Fiyat", "Degisim %",
-         "AL", "YZ Guven %", "CCI", "ADX", "Supertrend", "Bolge",
-         "Volatilite %", "Hacim"]].copy()
+tab = d[["Hisse", "Sinyal", "Fiyat", "Degisim %", "DI+", "DI-", "ADX",
+         "Kesisim Gun", "Hacim"]].copy()
 tab["Hacim"] = (tab["Hacim"] / 1_000_000).round(2)
-for _k in ("Strong Buy", "AI Buy", "CCI Long"):
-    tab[_k] = tab[_k].map(lambda v: "✅" if v else "")
-tab["Supertrend"] = tab["Supertrend"].map({"YUKARI": "Buy", "ASAGI": "Sell"})
-tab["Bolge"] = tab["Bolge"].map({"GOLDEN": "Altın", "DEATH": "Ölüm"})
+tab["Sinyal"] = tab["Sinyal"].map({"AL": "🟢 AL", "SAT": "🔴 SAT"})
 tab = tab.rename(columns={
-    "Hisse": "Sembol",
-    "Strong Buy": "Güçlü Al", "AI Buy": "YZ Öneri", "CCI Long": "Long",
-    "Degisim %": "Değ %", "YZ Guven %": "Güven%", "Supertrend": "ST",
-    "Bolge": "Bölge", "Volatilite %": "Vol", "Hacim": "Hacim M"})
+    "Hisse": "Sembol", "Degisim %": "Değ %", "Kesisim Gun": "Kaç gün önce",
+    "Hacim": "Hacim M"})
 
 # Genis ekran: tam tablo. Telefon: kart listesi. Ikisi de her zaman uretilir,
 # hangisinin gorunecegine CSS medya sorgusu karar verir (Python ekran
@@ -490,45 +426,33 @@ with kap:
         height=min(600, 36 * (len(tab) + 1) + 8),
         column_config={
             "Sembol": st.column_config.TextColumn(width="small"),
-            "Güçlü Al": st.column_config.TextColumn(
+            "Sinyal": st.column_config.TextColumn(
                 width="small",
-                help="Strong Buy — YZ Öneri ve Long aynı barda, SBS AL ≥ 17, "
-                     "Supertrend yukarı ve Golden Zone"),
-            "YZ Öneri": st.column_config.TextColumn(
-                width="small", help="AI Buy — YZ skoru 20 seviyesini yukarı kesti"),
-            "Long": st.column_config.TextColumn(
-                width="small",
-                help="CCI Long — CCI, Long Threshold eşiğini yukarı kesti"),
+                help="AL — DI+ DI-'yi yukarı kesti. SAT — DI- DI+'yi yukarı kesti."),
             "Fiyat": st.column_config.NumberColumn(format="%.2f",
                                                    width="small"),
             "Değ %": st.column_config.NumberColumn(format="%+.2f", width="small",
                                                    help="Günlük değişim %"),
-            "AL": st.column_config.ProgressColumn(
-                "AL / 26", min_value=0, max_value=26, format="%d",
-                width="small"),
-            "Güven%": st.column_config.NumberColumn(
-                format="%.0f", width="small", help="YZ AI güven yüzdesi"),
-            "CCI": st.column_config.NumberColumn(format="%.0f", width="small"),
+            "DI+": st.column_config.NumberColumn(
+                format="%.0f", width="small", help="Yükseliş yönü gücü"),
+            "DI-": st.column_config.NumberColumn(
+                format="%.0f", width="small", help="Düşüş yönü gücü"),
             "ADX": st.column_config.NumberColumn(
                 format="%.0f", width="small",
-                help="Trend gücü. 20 altı yatay seyir."),
-            "ST": st.column_config.TextColumn(
-                width="small", help="Supertrend yönü"),
-            "Bölge": st.column_config.TextColumn(
-                width="small", help="EMA50 / EMA200 bölgesi"),
-            "Vol": st.column_config.NumberColumn(
-                format="%.1f", width="small", help="ATR volatilitesi %"),
+                help="Trend gücü (yön değil). 20 altı yatay seyir."),
+            "Kaç gün önce": st.column_config.NumberColumn(
+                format="%d", width="small",
+                help="Kesişim kaç bar önce tetiklendi. 0 = bugün."),
             "Hacim M": st.column_config.NumberColumn(
-                format="%.1f", width="small", help="Milyon lot"),
+                format="%.1f", width="small", help="Milyon"),
         },
     )
 
-ROZET = {"STRONG BUY": ACCENT, "AI Buy": UP, "CCI Long": BLUE,
-         "Long Giris": VIOLET}
+ROZET = {"AL": UP, "SAT": DOWN}
 
 
 def _n(x, basamak: int = 0) -> str:
-    """Kisa gecmisli hisselerde CCI/ADX bos gelebilir; karta 'nan' yazmasin."""
+    """Kisa gecmisli hisselerde DI/ADX bos gelebilir; karta 'nan' yazmasin."""
     return "—" if pd.isna(x) else f"{x:.{basamak}f}"
 
 
@@ -536,13 +460,7 @@ def _kart(r: pd.Series) -> str:
     deg = 0.0 if pd.isna(r["Degisim %"]) else float(r["Degisim %"])
     dr = UP if deg >= 0 else DOWN
     ok = "▲" if deg >= 0 else "▼"
-    rozetler = "".join(
-        f'<span class="hk-rozet" style="background:{ROZET.get(t, GRID)}26;'
-        f'color:{ROZET.get(t, GRID)}">{t}</span>'
-        for t in (x.strip() for x in str(r["Sinyal"]).split("+")) if t
-    )
-    oran = min(max(int(r["AL"]) / 26, 0), 1) * 100
-    barrenk = ACCENT if r["Strong Buy"] else UP
+    renk = ROZET.get(r["Sinyal"], GRID)
     hacim = r["Hacim"] / 1_000_000
     return (
         f'<div class="hk">'
@@ -550,16 +468,13 @@ def _kart(r: pd.Series) -> str:
         f'<span class="hk-fiyat">{r["Fiyat"]:.2f}'
         f'<span style="color:{dr};font-size:.8rem;margin-left:.4rem">'
         f'{ok}{abs(deg):.2f}%</span></span></div>'
-        f'<div>{rozetler}</div>'
-        f'<div class="hk-bar"><span style="width:{oran:.0f}%;'
-        f'background:{barrenk}"></span></div>'
+        f'<div><span class="hk-rozet" style="background:{renk}26;color:{renk}">'
+        f'{r["Sinyal"]}</span></div>'
         f'<div class="hk-alt">'
-        f'<span>AL <b>{int(r["AL"])}/26</b></span>'
-        f'<span>YZ <b>{_n(r["YZ Guven %"])}</b></span>'
-        f'<span>CCI <b>{_n(r["CCI"])}</b></span>'
+        f'<span>DI+ <b>{_n(r["DI+"])}</b></span>'
+        f'<span>DI- <b>{_n(r["DI-"])}</b></span>'
         f'<span>ADX <b>{_n(r["ADX"])}</b></span>'
-        f'<span>ST <b>{"Buy" if r["Supertrend"] == "YUKARI" else "Sell"}</b></span>'
-        f'<span>Bölge <b>{r["Bolge"]}</b></span>'
+        f'<span>Kesişim <b>{int(r["Kesisim Gun"])} gün önce</b></span>'
         f'<span>Hacim <b>{_n(hacim, 1)}M</b></span>'
         f'</div></div>'
     )
@@ -573,7 +488,7 @@ st.markdown(
 )
 
 st.download_button("CSV indir", d.to_csv(index=False).encode("utf-8-sig"),
-                   file_name=f"{pcfg_sonuc['dosya_onek']}_long_"
+                   file_name=f"{pcfg_sonuc['dosya_onek']}_di_"
                             f"{dt.datetime.now(TZ):%Y%m%d}.csv",
                    mime="text/csv")
 
@@ -644,11 +559,11 @@ secim = st.selectbox("Hisse", d["Hisse"].tolist(), label_visibility="collapsed")
 
 df = st.session_state.frames.get(secim)
 if df is not None:
-    res = hesapla(df, ai_sens, cci_len, long_th, gc_filter)
+    res = hesapla(df)
     tail, px = res.tail(180), df.tail(180)
 
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                        row_heights=[0.74, 0.26], vertical_spacing=0.035)
+                        row_heights=[0.66, 0.34], vertical_spacing=0.035)
     fig.add_trace(go.Candlestick(
         x=px.index, open=px["open"], high=px["high"], low=px["low"],
         close=px["close"], name=secim,
@@ -656,27 +571,28 @@ if df is not None:
         decreasing=dict(line=dict(color=DOWN, width=1), fillcolor=DOWN),
     ), row=1, col=1)
 
-    for col, color, name, w in [("ema_50", BLUE, "EMA 50", 1.2),
-                                ("ema_200", VIOLET, "EMA 200", 1.2),
-                                ("base_ai", ACCENT, "YZ Şerit", 1.6)]:
-        fig.add_trace(go.Scatter(x=tail.index, y=tail[col], name=name,
-                                 line=dict(color=color, width=w)), row=1, col=1)
+    al_pts = tail[tail["AL_CROSS"]]
+    if len(al_pts):
+        fig.add_trace(go.Scatter(
+            x=al_pts.index, y=al_pts["close"] * 0.965, mode="markers",
+            name="AL", marker=dict(symbol="triangle-up", size=13, color=UP,
+                                   line=dict(width=0))), row=1, col=1)
+    sat_pts = tail[tail["SAT_CROSS"]]
+    if len(sat_pts):
+        fig.add_trace(go.Scatter(
+            x=sat_pts.index, y=sat_pts["close"] * 1.035, mode="markers",
+            name="SAT", marker=dict(symbol="triangle-down", size=13, color=DOWN,
+                                    line=dict(width=0))), row=1, col=1)
 
-    for kolon, renk, ad, boy in [("STRONG_BUY", ACCENT, "Strong Buy", 13),
-                                 ("AI_BUY", UP, "AI Buy", 10),
-                                 ("CCI_LONG", BLUE, "CCI Long", 9)]:
-        s = tail[tail[kolon]]
-        if len(s):
-            fig.add_trace(go.Scatter(
-                x=s.index, y=s["close"] * 0.965, mode="markers", name=ad,
-                marker=dict(symbol="triangle-up", size=boy, color=renk,
-                            line=dict(width=0))), row=1, col=1)
-
-    fig.add_trace(go.Scatter(x=tail.index, y=tail["cci"], name="CCI",
-                             line=dict(color=GRID, width=1.2)), row=2, col=1)
-    for y, dash in [(long_th, "dot"), (0, "solid"), (-long_th, "dot")]:
-        fig.add_hline(y=y, line=dict(color=GRID, width=1, dash=dash),
-                      opacity=.45, row=2, col=1)
+    fig.add_trace(go.Scatter(x=tail.index, y=tail["di_plus"], name="DI+",
+                             line=dict(color=UP, width=1.4)), row=2, col=1)
+    fig.add_trace(go.Scatter(x=tail.index, y=tail["di_minus"], name="DI-",
+                             line=dict(color=DOWN, width=1.4)), row=2, col=1)
+    fig.add_trace(go.Scatter(x=tail.index, y=tail["adx"], name="ADX",
+                             line=dict(color=GRID, width=1.2, dash="dot")),
+                  row=2, col=1)
+    fig.add_hline(y=min_adx, line=dict(color=GRID, width=1, dash="dash"),
+                  opacity=.45, row=2, col=1)
 
     # Saydam zemin: grafik sayfanin temasini alir, tema degisince uyumlu kalir.
     fig.update_layout(
@@ -691,19 +607,21 @@ if df is not None:
     st.plotly_chart(fig, use_container_width=True,
                     config={"displayModeBar": False})
 
-    st.markdown('<div class="sect">SBS detayı — 26 gösterge</div>',
-                unsafe_allow_html=True)
-    last = res.iloc[-1]
-    detay = pd.DataFrame({
-        "Gösterge": SBS_NAMES,
-        "Durum": ["AL" if last["sbs_" + n] else "SAT" for n in SBS_NAMES],
-    })
-    stil = {"AL": f"background-color:{UP}30;color:{UP};font-weight:600",
-            "SAT": f"background-color:{DOWN}30;color:{DOWN};font-weight:600"}
-    a, b = st.columns(2, gap="medium")
-    for kol, parca in [(a, detay.iloc[:13]), (b, detay.iloc[13:])]:
-        kol.dataframe(
-            parca.style.map(lambda v: stil.get(v, ""), subset=["Durum"]),
-            hide_index=True, use_container_width=True, height=36 * 14,
-            column_config={"Durum": st.column_config.TextColumn(width="small")},
-        )
+    son = res.iloc[-1]
+    yon = "AL" if son["di_plus"] > son["di_minus"] else "SAT"
+    renk = UP if yon == "AL" else DOWN
+    st.markdown(
+        f'<div class="cards" style="grid-template-columns:repeat(5,1fr);">'
+        f'<div class="card"><div class="n" style="color:{renk}">{yon}</div>'
+        f'<div class="l">güncel yön</div></div>'
+        f'<div class="card"><div class="n">{son["di_plus"]:.0f}</div>'
+        f'<div class="l">DI+</div></div>'
+        f'<div class="card"><div class="n">{son["di_minus"]:.0f}</div>'
+        f'<div class="l">DI-</div></div>'
+        f'<div class="card"><div class="n">{son["adx"]:.0f}</div>'
+        f'<div class="l">ADX</div></div>'
+        f'<div class="card"><div class="n">{int(son["kesisim_gun"])}</div>'
+        f'<div class="l">gün önce kesişti</div></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )

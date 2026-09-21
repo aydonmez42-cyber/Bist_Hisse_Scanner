@@ -1,8 +1,8 @@
 """
 Gunluk otomatik tarama isi.
 
-Her aksam 18:30'da calistirilir; gunluk barda AI Buy veya CCI Long ureten
-hisseleri Telegram'a gonderir.
+Her aksam 18:30'da calistirilir; gunluk barda DI+/DI- kesisimi tetiklenen
+(AL ya da SAT) hisseleri Telegram'a gonderir.
 
     python -m bist_screener.daily
     python -m bist_screener.daily --test          # baglantiyi dogrula, tarama yapma
@@ -31,7 +31,7 @@ LOG_DIR = Path.home() / ".bist_screener_cache" / "log"
 
 # Tarama esikleri — burayi kendinize gore degistirin
 MIN_HACIM = 500_000        # lot
-MIN_AL = 13                # 26 gostergeden en az kaci AL demeli
+MIN_ADX = 20               # bu ADX'in altindaki (zayif trend) sinyaller elenir
 LOOKBACK = 1               # sadece son kapanmis bar
 MAX_SATIR = 40             # mesajda listelenecek azami hisse
 
@@ -40,14 +40,14 @@ def _fmt_row(r: dict) -> str:
     ok = "▲" if r["Degisim %"] >= 0 else "▼"
     return (f"<code>{r['Hisse']:<6}</code> {r['Fiyat']:>8.2f}  "
             f"{ok}{abs(r['Degisim %']):>5.2f}%  "
-            f"AL {r['AL']:>2}/26  YZ {r['YZ Guven %']:.0f}")
+            f"DI+ {r['DI+']:>4.0f}  DI- {r['DI-']:>4.0f}  ADX {r['ADX']:>4.0f}")
 
 
 def build_message(df: pd.DataFrame, taranan: int, veri_tarihi: dt.date,
                   bayat: bool) -> str:
     now = dt.datetime.now(TZ)
     head = [
-        f"<b>BIST Long Tarama</b> · {now:%d.%m.%Y %H:%M}",
+        f"<b>BIST DI+/DI- Tarama</b> · {now:%d.%m.%Y %H:%M}",
         f"Taranan {taranan} hisse · {len(df)} sinyal · veri {veri_tarihi:%d.%m}",
     ]
     if bayat:
@@ -58,11 +58,8 @@ def build_message(df: pd.DataFrame, taranan: int, veri_tarihi: dt.date,
         return "\n".join(head)
 
     gruplar = [
-        ("🔷 <b>STRONG BUY</b>", df[df["Strong Buy"]]),
-        ("🟩 <b>AI Buy + CCI Long</b>",
-         df[~df["Strong Buy"] & df["AI Buy"] & df["CCI Long"]]),
-        ("🟢 <b>AI Buy</b>", df[~df["Strong Buy"] & df["AI Buy"] & ~df["CCI Long"]]),
-        ("🔵 <b>CCI Long</b>", df[~df["Strong Buy"] & ~df["AI Buy"] & df["CCI Long"]]),
+        ("🟢 <b>AL — DI+ yukarı kesti</b>", df[df["Sinyal"] == "AL"]),
+        ("🔴 <b>SAT — DI- yukarı kesti</b>", df[df["Sinyal"] == "SAT"]),
     ]
 
     body, yazilan = [], 0
@@ -113,23 +110,26 @@ def run(cfg: Settings | None = None, gonder: bool = True,
         except Exception:
             continue
         r = last_row_summary(sym, res, lookback=LOOKBACK)
-        if not (r["AI Buy"] or r["CCI Long"]):
+        if not (r["AL"] or r["SAT"]):
             continue
-        if r["Hacim"] < MIN_HACIM or r["AL"] < MIN_AL:
+        if r["Hacim"] < MIN_HACIM:
+            continue
+        if r["ADX"] == r["ADX"] and r["ADX"] < MIN_ADX:
             continue
         r["Sinyal"] = _label(r)
         rows.append(r)
 
     out = pd.DataFrame(rows)
     if not out.empty:
-        out = out.sort_values(["Strong Buy", "AL", "YZ Guven %"], ascending=False)
-        out = out.reset_index(drop=True)
+        out["_yon_sira"] = out["Sinyal"].map({"AL": 0, "SAT": 1}).fillna(2)
+        out = out.sort_values(["_yon_sira", "ADX"], ascending=[True, False])
+        out = out.drop(columns="_yon_sira").reset_index(drop=True)
 
     if gonder:
         notify.send(build_message(out, len(frames), veri_tarihi, bayat))
         if not out.empty:
             LOG_DIR.mkdir(parents=True, exist_ok=True)
-            csv = LOG_DIR / f"bist_long_{now:%Y%m%d}.csv"
+            csv = LOG_DIR / f"bist_di_{now:%Y%m%d}.csv"
             out.to_csv(csv, index=False, encoding="utf-8-sig")
             notify.send_document(csv, caption=f"Tam liste — {len(out)} hisse")
 
@@ -137,7 +137,7 @@ def run(cfg: Settings | None = None, gonder: bool = True,
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Günlük BIST Long taraması")
+    ap = argparse.ArgumentParser(description="Günlük BIST DI+/DI- taraması")
     ap.add_argument("--test", action="store_true",
                     help="Sadece Telegram bağlantısını doğrula")
     ap.add_argument("--zorla", action="store_true",
@@ -157,7 +157,7 @@ def main() -> None:
         df = run(gonder=not args.gonderme, zorla=args.zorla)
         print(f"Tamam — {len(df)} sinyal.")
         if not df.empty:
-            print(df[["Hisse", "Sinyal", "Fiyat", "AL"]].to_string(index=False))
+            print(df[["Hisse", "Sinyal", "Fiyat", "ADX"]].to_string(index=False))
     except Exception:
         hata = traceback.format_exc(limit=3)
         print(hata, file=sys.stderr)

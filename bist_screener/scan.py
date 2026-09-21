@@ -1,6 +1,6 @@
 """
-Tarayici. Tum BIST hisselerini gezer, indikatoru calistirir, sinyal ureten
-hisseleri tabloya doker.
+Tarayici. Tum BIST hisselerini gezer, DI+/DI- kesisim motorunu calistirir,
+AL veya SAT sinyali veren hisseleri tabloya doker.
 
 Komut satirindan:
     python -m bist_screener.scan --lookback 1 --min-hacim 1000000
@@ -18,30 +18,28 @@ from . import data as bist_data
 from .engine import Settings, compute, last_row_summary
 
 COLUMNS = [
-    "Hisse", "Sinyal", "Fiyat", "Degisim %", "AL", "SAT", "SBS", "YZ Durum",
-    "YZ Guven %", "CCI", "Supertrend", "Bolge", "ADX", "Volatilite %", "Hacim",
+    "Hisse", "Sinyal", "Fiyat", "Degisim %", "DI+", "DI-", "ADX",
+    "Kesisim Gun", "Hacim",
 ]
 
 
 def _label(row: dict) -> str:
-    tags = []
-    if row["Strong Buy"]:
-        tags.append("STRONG BUY")
-    if row["AI Buy"]:
-        tags.append("AI Buy")
-    if row["CCI Long"]:
-        tags.append("CCI Long")
-    if row["Long Giris"] and "STRONG BUY" not in tags:
-        tags.append("Long Giris")
-    return " + ".join(tags)
+    """Satirin gosterilecek sinyal etiketi: 'AL' ya da 'SAT'."""
+    if row.get("AL"):
+        return "AL"
+    if row.get("SAT"):
+        return "SAT"
+    return str(row.get("Yon", ""))
 
 
 def scan(symbols: list[str] | None = None, lookback: int = 1,
          cfg: Settings | None = None, min_volume: float = 0.0,
-         use_cache: bool = True, progress_cb=None) -> pd.DataFrame:
+         min_adx: float = 0.0, use_cache: bool = True,
+         progress_cb=None) -> pd.DataFrame:
     """
-    lookback: kac bar geriye kadar tetiklenen sinyaller kabul edilsin (1 = son bar)
-    min_volume: son barda bu lotun altinda kalan hisseler elenir
+    lookback: kac bar geriye kadar tetiklenen kesisimler kabul edilsin (1 = son bar)
+    min_volume: son barda bu hacmin altinda kalan hisseler elenir
+    min_adx: bu ADX'in altindaki (zayif trend) sinyaller elenir
     """
     cfg = cfg or Settings()
     symbols = symbols or bist_data.get_symbols()
@@ -54,9 +52,11 @@ def scan(symbols: list[str] | None = None, lookback: int = 1,
         except Exception:
             continue
         row = last_row_summary(sym, res, lookback=lookback)
-        if not (row["AI Buy"] or row["CCI Long"]):
+        if not (row["AL"] or row["SAT"]):
             continue
         if row["Hacim"] < min_volume:
+            continue
+        if row["ADX"] == row["ADX"] and row["ADX"] < min_adx:
             continue
         row["Sinyal"] = _label(row)
         rows.append(row)
@@ -65,22 +65,22 @@ def scan(symbols: list[str] | None = None, lookback: int = 1,
         return pd.DataFrame(columns=COLUMNS)
 
     out = pd.DataFrame(rows)
-    # Once Strong Buy, sonra iki sinyali birden verenler, sonra SBS skoru
-    out["_rank"] = (
-        out["Strong Buy"].astype(int) * 100
-        + (out["AI Buy"] & out["CCI Long"]).astype(int) * 50
-        + out["AL"]
-    )
-    out = out.sort_values("_rank", ascending=False).drop(columns="_rank")
+    # Once AL sinyalleri, sonra SAT sinyalleri; her grup icinde ADX'e (trend
+    # gucune) gore azalan sirada.
+    out["_yon_sira"] = out["Sinyal"].map({"AL": 0, "SAT": 1}).fillna(2)
+    out = out.sort_values(["_yon_sira", "ADX"], ascending=[True, False])
+    out = out.drop(columns="_yon_sira")
     return out[COLUMNS].reset_index(drop=True)
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="BIST Long sinyal tarayici")
+    ap = argparse.ArgumentParser(description="BIST DI+/DI- sinyal tarayici")
     ap.add_argument("--lookback", type=int, default=1,
-                    help="Son kac barda tetiklenen sinyaller listelensin")
+                    help="Son kac barda tetiklenen kesisimler listelensin")
     ap.add_argument("--min-hacim", type=float, default=0.0,
                     help="Minimum son bar hacmi (lot)")
+    ap.add_argument("--min-adx", type=float, default=0.0,
+                    help="Bu ADX'in altindaki sinyaller elenir")
     ap.add_argument("--bist100", action="store_true",
                     help="Tum piyasa yerine sadece hazir listeyi tara")
     ap.add_argument("--cikti", type=str, default="",
@@ -94,14 +94,14 @@ def main() -> None:
         print(f"  veri: {done}/{total}", end="\r")
 
     df = scan(syms, lookback=args.lookback, min_volume=args.min_hacim,
-              progress_cb=prog)
+              min_adx=args.min_adx, progress_cb=prog)
     print()
     if df.empty:
         print("Bugun kriterlere uyan hisse yok.")
     else:
         print(df.to_string(index=False))
 
-    path = args.cikti or f"bist_long_{dt.date.today():%Y%m%d}.csv"
+    path = args.cikti or f"bist_di_{dt.date.today():%Y%m%d}.csv"
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(path, index=False, encoding="utf-8-sig")
     print(f"\nKaydedildi: {path}")
