@@ -4,7 +4,7 @@ Binance USDT-M Futures veri katmani.
 bist_screener.data ile ayni arayuzu sunar (get_symbols, download, LAST_SOURCE),
 boylece dashboard iki piyasa arasinda modul referansini degistirerek gecis yapar.
 
-Zaman dilimi: "1d" (gunluk) ve "4h" (4 saatlik) desteklenir. Binance klines
+Zaman dilimi: "1d" (gunluk), "4h" (4 saatlik) ve "15m" (15 dakikalik) desteklenir. Binance klines
 uc noktasi "interval" degerini dogrudan kabul ettigi icin ek bir donusum
 gerekmez. Her zaman dilimi kendi alt klasorunde ayri onbelleklenir, boylece
 1d ve 4h verileri birbirine karismaz.
@@ -48,12 +48,18 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 LAST_SOURCE = "?"
 
 # Desteklenen zaman dilimleri ve dashboard'da gosterilecek etiketleri.
-INTERVALS: dict[str, str] = {"1d": "Günlük", "4h": "4 Saatlik"}
+INTERVALS: dict[str, str] = {"1d": "Günlük", "4h": "4 Saatlik", "15m": "15 Dakikalık"}
 
 # Onbellegin ne kadar sure "taze" sayilacagi — bar suresine gore. 4 saatlik
 # barlarda gunluk kadar bekleyip yeniden cekmek yeni kesisimleri kacirir;
 # gunlukte ise gunde bir cekim yeterlidir.
-_CACHE_MAX_AGE_HOURS: dict[str, float] = {"1d": 20.0, "4h": 3.0}
+_CACHE_MAX_AGE_HOURS: dict[str, float] = {"1d": 20.0, "4h": 3.0, "15m": 0.1}
+
+# Istek basina bar sayisi. Binance klines istek agirligi limit'e baglidir
+# (100-499 bar = 2, 500-1000 bar = 5) ve IP basina dakikada 2400 agirlik
+# siniri var. 15 dakikalikta ~5 gun (499 bar) DI/ADX ve Supertrend icin
+# fazlasiyla yeterli, ve tum evreni taramak sinira cok daha az yaklasir.
+_KLINE_LIMIT: dict[str, int] = {"1d": 1000, "4h": 1000, "15m": 499}
 
 # DI(14)/ADX(14) icin anlamli bir hesap yapabilmek adina istenen asgari bar
 # sayisi (eski EMA365 kosulundan cok daha dusuk — o gosterge motorda artik yok).
@@ -148,7 +154,7 @@ def download(symbols: list[str], years: int | None = None, use_cache: bool = Tru
     korumak icin var, Binance'te kullanilmiyor (limit=1000 bar; gunlukte
     ~2.7 yil, 4 saatlikte ~166 gun gecmis kapsar).
 
-    `interval`: "1d" (gunluk) ya da "4h" (4 saatlik). Her biri ayri klasorde
+    `interval`: "1d" (gunluk), "4h" (4 saatlik) ya da "15m" (15 dakikalik). Her biri ayri klasorde
     onbelleklenir.
     """
     if interval not in INTERVALS:
@@ -173,7 +179,8 @@ def download(symbols: list[str], years: int | None = None, use_cache: bool = Tru
 
     def _one(sym: str):
         try:
-            df = _fetch_klines(sym, interval=interval)
+            df = _fetch_klines(sym, interval=interval,
+                               limit=_KLINE_LIMIT.get(interval, 1000))
             if len(df) < MIN_BARS:
                 return sym, None
             df.to_parquet(_cache_path(sym, interval))

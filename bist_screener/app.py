@@ -226,7 +226,7 @@ MARKETS = {
         hacim_max=20_000_000_000, evren_ac="Tüm Binance Futures",
         evren_yedek="Majör Coinler", dosya_onek="kripto", ornek_sembol="BTCUSDT",
         tv_onek="BINANCE:", tv_sonek=".P",   # .P = perpetual futures
-        zaman_dilimleri=[("4h", "4 Saatlik"), ("1d", "Günlük")],
+        zaman_dilimleri=[("15m", "15 Dakikalık"), ("4h", "4 Saatlik"), ("1d", "Günlük")],
         aciklama="Aynı DI+/DI- ve Supertrend (10 / 7.8) sistemlerinin Binance "
                  "USDT-M Futures paritelerinde, seçtiğiniz zaman diliminde "
                  "otomatik taraması.",
@@ -239,7 +239,10 @@ with st.container(key="piyasa_kutusu"):
 pcfg = MARKETS[piyasa]
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+# 5 dk: 15 dakikalik barlarda 30 dk'lik onbellek iki yeni bari gizlerdi. Asil
+# agir isi (ag istekleri) crypto_data/data icindeki dosya onbellegi sinirlar
+# (gunluk 20 sa, 4 saatlik 3 sa, 15 dk'lik ~6 dk), burasi sadece oturum ici.
+@st.cache_data(ttl=300, show_spinner=False)
 def load_prices(piyasa_adi: str, symbols: tuple[str, ...],
                 interval: str) -> dict[str, pd.DataFrame]:
     return MARKETS[piyasa_adi]["modul"].download(list(symbols), interval=interval)
@@ -283,19 +286,19 @@ with st.sidebar:
         zd_secim = st.radio("Zaman dilimi", zd_etiketler, horizontal=True,
                             index=0, key=f"zaman_dilimi_{piyasa}",
                             help="Tarama hangi mum periyodunda çalışsın. "
-                                 "4 Saatlik daha sık ve daha erken kesişim "
-                                 "yakalar, karşılığında daha çok yanlış "
-                                 "sinyal de üretebilir.")
+                                 "Kısa periyot (15 dk, 4 saat) daha sık ve "
+                                 "daha erken sinyal yakalar, karşılığında "
+                                 "daha çok yanlış sinyal de üretir.")
         interval = {e: k for k, e in zd_secenekler}[zd_secim]
     else:
         interval = zd_secenekler[0][0]
 
-    _bar_adi = "gün" if interval == "1d" else "4 saatlik bar"
+    _bar_suresi = {"1d": "1 gün", "4h": "4 saat", "15m": "15 dakika"}.get(interval, "1 bar")
     lookback = st.slider(
         "Sinyal tazeliği (bar)", 1, 5, 1,
         help="DI+/DI- kesişimi, kesildiği barda bir kez tetiklenir. 1 sadece "
-             f"son kapanmış {_bar_adi}ü gösterir. 3 yaparsanız son üç "
-             f"{_bar_adi} içinde kesişmiş {pcfg['birim'].lower()}ler de "
+             f"son barı gösterir (1 bar = {_bar_suresi}). 3 yaparsanız son üç "
+             f"bar içinde kesişmiş {pcfg['birim'].lower()}ler de "
              "listeye girer — kaçırdığınız sinyalleri yakalarsınız, "
              "karşılığında liste eskir ve uzar.")
 
@@ -459,7 +462,7 @@ st.markdown(f'<div class="sect">Sinyal veren {pcfg_sonuc["birim"].lower()}ler'
 # TradingView grafik baglantisi. Taranan piyasa ve TARANAN zaman dilimi
 # kullanilir (kenar cubugundaki guncel secim degil), boylece link, listedeki
 # sinyalin hesaplandigi mum periyodunda acilir.
-_TV_ARALIK = {"1d": "D", "4h": "240"}
+_TV_ARALIK = {"1d": "D", "4h": "240", "15m": "15"}
 
 
 def tv_url(sembol: str) -> str:
