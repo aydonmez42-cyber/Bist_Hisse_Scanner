@@ -7,6 +7,12 @@ motorunun yerine gecti:
   - DI+ (yesil), DI-'yi (kirmizi) YUKARI keserse  -> AL sinyali
   - DI- (kirmizi), DI+'yi (yesil) YUKARI keserse  -> SAT sinyali
 
+Ikinci bir tarama secenegi olarak Supertrend (ATR 10 x 7.8) de hesaplanir:
+  - Supertrend yukari donerse (fiyat ust bandi asarsa)  -> AL sinyali
+  - Supertrend asagi donerse  (fiyat alt bandi kirarsa) -> SAT sinyali
+Dashboard hangi sistemin sinyalinin listelenecegini "Sinyal sistemi" ile secer;
+ikisi de her taramada hesaplanir.
+
 ADX aynı hesaptan gelir ve sinyalin YONUNU degil, mevcut trendin GUCUNU
 gosterir; "Minimum ADX" filtresiyle yatay/kararsiz piyasadaki gurultulu
 kesisimleri elemek icin kullanilir.
@@ -28,9 +34,49 @@ from . import pine as ta
 
 @dataclass
 class Settings:
-    """DMI/ADX parametreleri. Varsayilanlar standart Wilder degerleridir (14/14)."""
+    """DMI/ADX (14/14, Wilder) ve Supertrend (10 / 7.8) parametreleri."""
     di_len: int = 14
     adx_len: int = 14
+    st_len: int = 10          # Supertrend ATR periyodu
+    st_mult: float = 7.8      # Supertrend ATR carpani
+
+
+def _supertrend(close: np.ndarray, atr: np.ndarray, mult: float):
+    """
+    ATR tabanli takip eden stop ve yon (Pine BOLUM 2'deki uygulama: bantlar
+    kapanisin +/- mult*ATR'sidir). trend: 1 = yukari, -1 = asagi.
+    """
+    n = len(close)
+    up = close - mult * atr
+    dn = close + mult * atr
+    trend = np.ones(n, dtype=int)
+
+    for i in range(1, n):
+        prev_up = up[i - 1] if not np.isnan(up[i - 1]) else up[i]
+        prev_dn = dn[i - 1] if not np.isnan(dn[i - 1]) else dn[i]
+        if close[i - 1] > prev_up:
+            up[i] = max(up[i], prev_up)
+        if close[i - 1] < prev_dn:
+            dn[i] = min(dn[i], prev_dn)
+
+        t = trend[i - 1]
+        if t == -1 and close[i] > prev_dn:
+            t = 1
+        elif t == 1 and close[i] < prev_up:
+            t = -1
+        trend[i] = t
+
+    return up, dn, trend
+
+
+def _bars_since(flag: np.ndarray) -> np.ndarray:
+    """Her barda, son True'dan bu yana gecen bar sayisi (True barinda 0)."""
+    out = np.zeros(len(flag), dtype=int)
+    sayac = 0
+    for i, f in enumerate(flag):
+        sayac = 0 if f else sayac + 1
+        out[i] = sayac
+    return out
 
 
 def compute(df: pd.DataFrame, cfg: Settings | None = None) -> pd.DataFrame:
@@ -58,16 +104,24 @@ def compute(df: pd.DataFrame, cfg: Settings | None = None) -> pd.DataFrame:
 
     # Son kesisimden bu yana gecen bar sayisi - sinyalin ne kadar "taze"
     # oldugunu gostermek icin (0 = tam bugun kesisti).
-    cross_any = (out["AL_CROSS"] | out["SAT_CROSS"]).to_numpy()
-    gun = np.zeros(len(out), dtype=int)
-    sayac = 0
-    for i in range(len(out)):
-        if cross_any[i]:
-            sayac = 0
-        else:
-            sayac += 1
-        gun[i] = sayac
-    out["kesisim_gun"] = gun
+    out["kesisim_gun"] = _bars_since((out["AL_CROSS"] | out["SAT_CROSS"]).to_numpy())
+
+    # --- Supertrend -----------------------------------------------------------
+    atr_st = ta.atr(h, l, c, cfg.st_len)
+    st_up, st_dn, st_trend = _supertrend(
+        c.to_numpy(float), atr_st.to_numpy(float), cfg.st_mult)
+    trend = pd.Series(st_trend, index=df.index)
+    prev = trend.shift(1)
+    # ATR isinma doneminde (ilk st_len bar) yon henuz anlamsiz: sahte donus yok.
+    olgun = pd.Series(np.arange(len(df)) > cfg.st_len, index=df.index)
+    st_al = ((trend == 1) & (prev == -1) & olgun).fillna(False)
+    st_sat = ((trend == -1) & (prev == 1) & olgun).fillna(False)
+
+    out["st_yon"] = np.where(trend == 1, "AL", "SAT")
+    out["st_seviye"] = np.where(trend == 1, st_up, st_dn)
+    out["ST_AL"] = st_al
+    out["ST_SAT"] = st_sat
+    out["st_gun"] = _bars_since((st_al | st_sat).to_numpy())
 
     return out
 
@@ -99,5 +153,11 @@ def last_row_summary(symbol: str, res: pd.DataFrame, lookback: int = 1) -> dict:
         "DI-": num(last["di_minus"]),
         "ADX": num(last["adx"]),
         "Kesisim Gun": int(last["kesisim_gun"]),
+        "ST Yon": str(last["st_yon"]),
+        "ST AL": fired("ST_AL"),
+        "ST SAT": fired("ST_SAT"),
+        "ST Seviye": round(float(last["st_seviye"]), 6)
+        if last["st_seviye"] == last["st_seviye"] else np.nan,
+        "ST Gun": int(last["st_gun"]),
         "Hacim": float(last["volume"]),
     }

@@ -12,6 +12,7 @@ import datetime as dt
 import os
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -21,7 +22,6 @@ from bist_screener import data as bist_data
 from bist_screener import crypto_data
 from bist_screener import pwa
 from bist_screener.engine import Settings, compute, last_row_summary
-from bist_screener.scan import _label
 
 TZ = ZoneInfo("Europe/Istanbul")
 
@@ -213,9 +213,10 @@ MARKETS = {
         # (kod, etiket) - tek secenek varsa sidebar'da zaman dilimi kutusu
         # hic gosterilmez, gereksiz ayarla kalabalik edilmez.
         zaman_dilimleri=[("1d", "Günlük")],
-        aciklama="ADX DI+/DI- kesişim sistemiyle BIST hisseleri üzerinde "
-                 "otomatik tarama: DI+ (yeşil) DI-'yi (kırmızı) yukarı "
-                 "keserse AL, DI- DI+'yi yukarı keserse SAT sinyali üretir.",
+        aciklama="BIST hisseleri üzerinde otomatik tarama. DI+/DI- sisteminde "
+                 "DI+ (yeşil) DI-'yi (kırmızı) yukarı keserse AL, tersi olursa "
+                 "SAT; Supertrend (10 / 7.8) sisteminde yön yukarı dönerse AL, "
+                 "aşağı dönerse SAT sinyali üretir.",
     ),
     "Kripto": dict(
         modul=crypto_data, baslik="Kripto Sinyal Tarayıcı", birim="Coin",
@@ -223,8 +224,9 @@ MARKETS = {
         hacim_max=20_000_000_000, evren_ac="Tüm Binance Futures",
         evren_yedek="Majör Coinler", dosya_onek="kripto", ornek_sembol="BTCUSDT",
         zaman_dilimleri=[("4h", "4 Saatlik"), ("1d", "Günlük")],
-        aciklama="Aynı DI+/DI- kesişim sisteminin Binance USDT-M Futures "
-                 "paritelerinde, seçtiğiniz zaman diliminde otomatik taraması.",
+        aciklama="Aynı DI+/DI- ve Supertrend (10 / 7.8) sistemlerinin Binance "
+                 "USDT-M Futures paritelerinde, seçtiğiniz zaman diliminde "
+                 "otomatik taraması.",
     ),
 }
 
@@ -298,9 +300,16 @@ with st.sidebar:
     st.markdown('<div class="hint">Bunlar anında uygulanır, yeniden tarama '
                 'gerektirmez.</div>', unsafe_allow_html=True)
 
+    sistem = st.radio(
+        "Sinyal sistemi", ["DI+/DI-", "Supertrend"], horizontal=True,
+        help="Hangi sistemin sinyalleri listelensin. DI+/DI-: DI+ DI-'yi "
+             "yukarı keserse AL, DI- DI+'yi yukarı keserse SAT. Supertrend "
+             "(ATR 10, çarpan 7.8): yön yukarı dönerse AL, aşağı dönerse SAT. "
+             "İkisi de her taramada hesaplanır; burada değiştirmek yeniden "
+             "tarama gerektirmez.")
     yon_secim = st.multiselect(
         "Sinyal yönü", ["AL", "SAT"], default=["AL", "SAT"],
-        help="AL: DI+ DI-'yi yukarı kesti. SAT: DI- DI+'yi yukarı kesti.")
+        help="AL ve/veya SAT sinyallerini göster.")
     min_adx = st.slider(
         "Minimum ADX", 0, 50, 20,
         help="ADX trendin gücünü ölçer, yönünü değil. 20'nin altı genelde "
@@ -352,8 +361,7 @@ if calistir:
         except Exception:
             continue
         r = last_row_summary(sym, res, lookback=lookback)
-        if r["AL"] or r["SAT"]:
-            r["Sinyal"] = _label(r)
+        if r["AL"] or r["SAT"] or r["ST AL"] or r["ST SAT"]:
             rows.append(r)
         if i % 25 == 0:
             bar.progress(i / max(len(frames), 1), text="DI+/DI- hesaplanıyor")
@@ -391,6 +399,14 @@ if st.session_state.imza != tarama_imzasi:
 # ---------------------------------------------------------------------- filtre
 d = sonuc.copy()
 if not d.empty:
+    # Secilen sisteme gore Sinyal / "kac bar once" kolonlarini uret.
+    if sistem == "Supertrend":
+        al_k, sat_k, gun_k = "ST AL", "ST SAT", "ST Gun"
+    else:
+        al_k, sat_k, gun_k = "AL", "SAT", "Kesisim Gun"
+    d["Sinyal"] = np.where(d[al_k], "AL", np.where(d[sat_k], "SAT", ""))
+    d["Kesisim Gun"] = d[gun_k]
+    d = d[d["Sinyal"] != ""]
     d = d[d["Sinyal"].isin(yon_secim)]
     d = d[(d["ADX"].fillna(0) >= min_adx) & (d["Hacim"] >= min_hacim)]
     d = d.sort_values(["Sinyal", "ADX"], ascending=[True, False])
@@ -438,13 +454,22 @@ st.markdown(f'<div class="sect">Sinyal veren {pcfg_sonuc["birim"].lower()}ler'
            '</div>', unsafe_allow_html=True)
 
 _kesisim_kolon = "Kaç gün önce" if gunluk_mi else "Kaç bar önce"
-tab = d[["Hisse", "Sinyal", "Fiyat", "Degisim %", "DI+", "DI-", "ADX",
-         "Kesisim Gun", "Hacim"]].copy()
+st_modu = sistem == "Supertrend"
+if st_modu:
+    _kolonlar = ["Hisse", "Sinyal", "Fiyat", "Degisim %", "ST Seviye", "ADX",
+                 "Kesisim Gun", "Hacim"]
+else:
+    _kolonlar = ["Hisse", "Sinyal", "Fiyat", "Degisim %", "DI+", "DI-", "ADX",
+                 "Kesisim Gun", "Hacim"]
+tab = d[_kolonlar].copy()
 tab["Hacim"] = (tab["Hacim"] / 1_000_000).round(2)
 tab["Sinyal"] = tab["Sinyal"].map({"AL": "🟢 AL", "SAT": "🔴 SAT"})
 tab = tab.rename(columns={
     "Hisse": "Sembol", "Degisim %": "Değ %", "Kesisim Gun": _kesisim_kolon,
-    "Hacim": "Hacim M"})
+    "Hacim": "Hacim M", "ST Seviye": "ST seviye"})
+_sinyal_yardim = (
+    "AL — Supertrend yukarı döndü. SAT — Supertrend aşağı döndü." if st_modu
+    else "AL — DI+ DI-'yi yukarı kesti. SAT — DI- DI+'yi yukarı kesti.")
 
 # Genis ekran: tam tablo. Telefon: kart listesi. Ikisi de her zaman uretilir,
 # hangisinin gorunecegine CSS medya sorgusu karar verir (Python ekran
@@ -462,7 +487,10 @@ with kap:
             "Sembol": st.column_config.TextColumn(width="small"),
             "Sinyal": st.column_config.TextColumn(
                 width="small",
-                help="AL — DI+ DI-'yi yukarı kesti. SAT — DI- DI+'yi yukarı kesti."),
+                help=_sinyal_yardim),
+            "ST seviye": st.column_config.NumberColumn(
+                format="%.4g", width="small",
+                help="Supertrend takip eden stop seviyesi (ATR 10 x 7.8)."),
             "Fiyat": st.column_config.NumberColumn(format="%.2f",
                                                    width="small"),
             "Değ %": st.column_config.NumberColumn(format="%+.2f", width="small",
@@ -476,7 +504,7 @@ with kap:
                 help="Trend gücü (yön değil). 20 altı yatay seyir."),
             _kesisim_kolon: st.column_config.NumberColumn(
                 format="%d", width="small",
-                help="Kesişim kaç bar önce tetiklendi. 0 = son bar."),
+                help="Sinyal kaç bar önce tetiklendi. 0 = son bar."),
             "Hacim M": st.column_config.NumberColumn(
                 format="%.1f", width="small", help="Milyon"),
         },
@@ -508,10 +536,11 @@ def _kart(r: pd.Series) -> str:
         f'<div><span class="hk-rozet" style="background:{renk}26;color:{renk}">'
         f'{r["Sinyal"]}</span></div>'
         f'<div class="hk-alt">'
-        f'<span>DI+ <b>{_n(r["DI+"])}</b></span>'
-        f'<span>DI- <b>{_n(r["DI-"])}</b></span>'
-        f'<span>ADX <b>{_n(r["ADX"])}</b></span>'
-        f'<span>Kesişim <b>{int(r["Kesisim Gun"])} {_birim_kisa} önce</b></span>'
+        + (f'<span>ST seviye <b>{r["ST Seviye"]:.4g}</b></span>' if st_modu else
+           f'<span>DI+ <b>{_n(r["DI+"])}</b></span>'
+           f'<span>DI- <b>{_n(r["DI-"])}</b></span>')
+        + f'<span>ADX <b>{_n(r["ADX"])}</b></span>'
+        f'<span>Sinyal <b>{int(r["Kesisim Gun"])} {_birim_kisa} önce</b></span>'
         f'<span>Hacim <b>{_n(hacim, 1)}M</b></span>'
         f'</div></div>'
     )
@@ -608,13 +637,25 @@ if df is not None:
         decreasing=dict(line=dict(color=DOWN, width=1), fillcolor=DOWN),
     ), row=1, col=1)
 
-    al_pts = tail[tail["AL_CROSS"]]
+    # Supertrend cizgisi: yon yukariyken yesil, asagiyken kirmizi. Iki ayri
+    # iz kullaniyoruz, digerinin bolgesi NaN oldugu icin cizgi kopuk gorunur.
+    for _yon, _renk in (("AL", UP), ("SAT", DOWN)):
+        fig.add_trace(go.Scatter(
+            x=tail.index,
+            y=tail["st_seviye"].where(tail["st_yon"] == _yon),
+            name=f"Supertrend ({_yon})", mode="lines",
+            line=dict(color=_renk, width=1.6 if st_modu else 1.0),
+            opacity=1.0 if st_modu else .55,
+            connectgaps=False), row=1, col=1)
+
+    al_kol, sat_kol = ("ST_AL", "ST_SAT") if st_modu else ("AL_CROSS", "SAT_CROSS")
+    al_pts = tail[tail[al_kol]]
     if len(al_pts):
         fig.add_trace(go.Scatter(
             x=al_pts.index, y=al_pts["close"] * 0.965, mode="markers",
             name="AL", marker=dict(symbol="triangle-up", size=13, color=UP,
                                    line=dict(width=0))), row=1, col=1)
-    sat_pts = tail[tail["SAT_CROSS"]]
+    sat_pts = tail[tail[sat_kol]]
     if len(sat_pts):
         fig.add_trace(go.Scatter(
             x=sat_pts.index, y=sat_pts["close"] * 1.035, mode="markers",
@@ -645,20 +686,31 @@ if df is not None:
                     config={"displayModeBar": False})
 
     son = res.iloc[-1]
-    yon = "AL" if son["di_plus"] > son["di_minus"] else "SAT"
+    if st_modu:
+        yon, gun, etiket = son["st_yon"], int(son["st_gun"]), "önce döndü"
+        orta = (f'<div class="card"><div class="n">{son["st_seviye"]:.4g}</div>'
+                f'<div class="l">Supertrend seviyesi</div></div>'
+                f'<div class="card"><div class="n">{son["adx"]:.0f}</div>'
+                f'<div class="l">ADX</div></div>')
+        kolon_say = 4
+    else:
+        yon = "AL" if son["di_plus"] > son["di_minus"] else "SAT"
+        gun, etiket = int(son["kesisim_gun"]), "önce kesişti"
+        orta = (f'<div class="card"><div class="n">{son["di_plus"]:.0f}</div>'
+                f'<div class="l">DI+</div></div>'
+                f'<div class="card"><div class="n">{son["di_minus"]:.0f}</div>'
+                f'<div class="l">DI-</div></div>'
+                f'<div class="card"><div class="n">{son["adx"]:.0f}</div>'
+                f'<div class="l">ADX</div></div>')
+        kolon_say = 5
     renk = UP if yon == "AL" else DOWN
     st.markdown(
-        f'<div class="cards" style="grid-template-columns:repeat(5,1fr);">'
+        f'<div class="cards" style="grid-template-columns:repeat({kolon_say},1fr);">'
         f'<div class="card"><div class="n" style="color:{renk}">{yon}</div>'
-        f'<div class="l">güncel yön</div></div>'
-        f'<div class="card"><div class="n">{son["di_plus"]:.0f}</div>'
-        f'<div class="l">DI+</div></div>'
-        f'<div class="card"><div class="n">{son["di_minus"]:.0f}</div>'
-        f'<div class="l">DI-</div></div>'
-        f'<div class="card"><div class="n">{son["adx"]:.0f}</div>'
-        f'<div class="l">ADX</div></div>'
-        f'<div class="card"><div class="n">{int(son["kesisim_gun"])}</div>'
-        f'<div class="l">{_birim_kisa} önce kesişti</div></div>'
+        f'<div class="l">güncel yön ({sistem})</div></div>'
+        + orta +
+        f'<div class="card"><div class="n">{gun}</div>'
+        f'<div class="l">{_birim_kisa} {etiket}</div></div>'
         '</div>',
         unsafe_allow_html=True,
     )
