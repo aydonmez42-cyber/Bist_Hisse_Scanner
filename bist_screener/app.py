@@ -110,7 +110,9 @@ st.markdown("""
         padding:.7rem .8rem; margin-bottom:.5rem; }
   .hk-ust { display:flex; justify-content:space-between; align-items:baseline;
             gap:.5rem; }
-  .hk-ad { font-size:1.02rem; font-weight:650; letter-spacing:.01em; }
+  .hk-ad { font-size:1.02rem; font-weight:650; letter-spacing:.01em;
+           color:inherit !important; text-decoration:none; }
+  a.hk-ad:hover { text-decoration:underline; }
   .hk-fiyat { font-size:1.0rem; font-weight:600;
               font-variant-numeric:tabular-nums; }
   .hk-rozet { display:inline-block; font-size:.7rem; font-weight:650;
@@ -209,7 +211,7 @@ MARKETS = {
         modul=bist_data, baslik="BIST Sinyal Tarayıcı", birim="Hisse",
         hacim_birimi="lot", hacim_varsayilan=500_000, hacim_adim=100_000,
         hacim_max=100_000_000, evren_ac="Tüm BIST", evren_yedek="Yedek liste",
-        dosya_onek="bist", ornek_sembol="THYAO",
+        dosya_onek="bist", ornek_sembol="THYAO", tv_onek="BIST:", tv_sonek="",
         # (kod, etiket) - tek secenek varsa sidebar'da zaman dilimi kutusu
         # hic gosterilmez, gereksiz ayarla kalabalik edilmez.
         zaman_dilimleri=[("1d", "Günlük")],
@@ -223,6 +225,7 @@ MARKETS = {
         hacim_birimi="USDT", hacim_varsayilan=1_000_000, hacim_adim=500_000,
         hacim_max=20_000_000_000, evren_ac="Tüm Binance Futures",
         evren_yedek="Majör Coinler", dosya_onek="kripto", ornek_sembol="BTCUSDT",
+        tv_onek="BINANCE:", tv_sonek=".P",   # .P = perpetual futures
         zaman_dilimleri=[("4h", "4 Saatlik"), ("1d", "Günlük")],
         aciklama="Aynı DI+/DI- ve Supertrend (10 / 7.8) sistemlerinin Binance "
                  "USDT-M Futures paritelerinde, seçtiğiniz zaman diliminde "
@@ -453,6 +456,19 @@ if d.empty:
 st.markdown(f'<div class="sect">Sinyal veren {pcfg_sonuc["birim"].lower()}ler'
            '</div>', unsafe_allow_html=True)
 
+# TradingView grafik baglantisi. Taranan piyasa ve TARANAN zaman dilimi
+# kullanilir (kenar cubugundaki guncel secim degil), boylece link, listedeki
+# sinyalin hesaplandigi mum periyodunda acilir.
+_TV_ARALIK = {"1d": "D", "4h": "240"}
+
+
+def tv_url(sembol: str) -> str:
+    c = pcfg_sonuc
+    aralik = _TV_ARALIK.get(st.session_state.get("interval", "1d"), "D")
+    return (f"https://www.tradingview.com/chart/?symbol="
+            f"{c['tv_onek']}{sembol}{c['tv_sonek']}&interval={aralik}")
+
+
 _kesisim_kolon = "Kaç gün önce" if gunluk_mi else "Kaç bar önce"
 st_modu = sistem == "Supertrend"
 if st_modu:
@@ -464,6 +480,7 @@ else:
 tab = d[_kolonlar].copy()
 tab["Hacim"] = (tab["Hacim"] / 1_000_000).round(2)
 tab["Sinyal"] = tab["Sinyal"].map({"AL": "🟢 AL", "SAT": "🔴 SAT"})
+tab["Hisse"] = tab["Hisse"].map(tv_url)
 tab = tab.rename(columns={
     "Hisse": "Sembol", "Degisim %": "Değ %", "Kesisim Gun": _kesisim_kolon,
     "Hacim": "Hacim M", "ST Seviye": "ST seviye"})
@@ -484,7 +501,9 @@ with kap:
         tab, use_container_width=True, hide_index=True,
         height=min(600, 36 * (len(tab) + 1) + 8),
         column_config={
-            "Sembol": st.column_config.TextColumn(width="small"),
+            "Sembol": st.column_config.LinkColumn(
+                width="small", display_text=r"symbol=[A-Z]+:([A-Z0-9]+)",
+                help="Tıklayın: TradingView'de grafiği yeni sekmede açar."),
             "Sinyal": st.column_config.TextColumn(
                 width="small",
                 help=_sinyal_yardim),
@@ -529,7 +548,8 @@ def _kart(r: pd.Series) -> str:
     hacim = r["Hacim"] / 1_000_000
     return (
         f'<div class="hk">'
-        f'<div class="hk-ust"><span class="hk-ad">{r["Hisse"]}</span>'
+        f'<div class="hk-ust"><a class="hk-ad" href="{tv_url(r["Hisse"])}" target="_blank" '
+        f'rel="noopener noreferrer">{r["Hisse"]} ↗</a>'
         f'<span class="hk-fiyat">{r["Fiyat"]:.2f}'
         f'<span style="color:{dr};font-size:.8rem;margin-left:.4rem">'
         f'{ok}{abs(deg):.2f}%</span></span></div>'
@@ -684,6 +704,7 @@ if df is not None:
     fig.update_yaxes(gridcolor="rgba(138,154,171,.18)", zeroline=False)
     st.plotly_chart(fig, use_container_width=True,
                     config={"displayModeBar": False})
+    st.link_button(f"{secim} — TradingView'de aç ↗", tv_url(secim))
 
     son = res.iloc[-1]
     if st_modu:
